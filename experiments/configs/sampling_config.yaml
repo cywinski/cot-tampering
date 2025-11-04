@@ -1,0 +1,33 @@
+# Configuration for LLM sampling with Nebius API
+
+# Model configuration
+model:
+  name: "meta-llama/Meta-Llama-3.1-70B-Instruct"  # Model to use for sampling
+  temperature: 0.7  # Sampling temperature (0.0-2.0, higher = more random)
+  max_tokens: 2048  # Maximum tokens to generate per response
+  top_p: 0.95  # Nucleus sampling threshold
+  top_k: 40  # Top-k sampling parameter
+
+# Sampling configuration
+sampling:
+  n_responses: 5  # Number of responses to sample per prompt
+  max_retries: 3  # Maximum retries for failed API calls
+  timeout: 60.0  # Timeout in seconds for each API call
+
+# Dataset configuration
+dataset:
+  name: "math500"  # Dataset name from registry (math500, gsm8k, mmlu, etc.)
+  # For datasets with parameters (e.g., mmlu):
+  # params:
+  #   subject: "abstract_algebra"
+
+# Prompt formatting
+prompt:
+  formatter: "math"  # Formatter type: simple, math, custom, few_shot
+  system_prompt: "You are a math expert. Solve the following problem step by step."
+  include_cot_prompt: true  # Include chain-of-thought instruction for math problems
+
+# Output configuration
+output:
+  save_dir: "experiments/results"  # Directory to save results
+  save_format: "jsonl"  # Format: json or jsonl

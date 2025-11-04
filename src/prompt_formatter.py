@@ -21,6 +21,38 @@ class PromptFormatter(ABC):
         pass
 
 
+class RawFormatter(PromptFormatter):
+    """Raw formatter that uses dataset prompts exactly as-is without modifications."""
+
+    def __init__(self, field_name: str = "problem"):
+        """Initialize formatter.
+
+        Args:
+            field_name: Name of the field to extract from dataset (e.g., 'problem', 'question')
+        """
+        self.field_name = field_name
+
+    def format(self, problem: dict[str, Any]) -> list[dict[str, str]]:
+        """Extract prompt from dataset field without any modifications.
+
+        Args:
+            problem: Dict with dataset fields
+
+        Returns:
+            List with single user message containing raw prompt
+        """
+        # Try specified field first, then common alternatives
+        content = (
+            problem.get(self.field_name)
+            or problem.get("problem")
+            or problem.get("question")
+            or str(problem)
+        )
+        return [
+            {"role": "user", "content": content},
+        ]
+
+
 class SimpleQAFormatter(PromptFormatter):
     """Simple Q&A formatter for datasets with question/answer structure."""
 

@@ -20,7 +20,7 @@ class SamplingConfig:
     temperature: float = 0.7
     max_tokens: int = 2048
     top_p: float = 0.95
-    top_k: int = 40
+    top_k: int | None = None
     n_responses: int = 1
     max_retries: int = 3
     timeout: float = 60.0
@@ -58,14 +58,21 @@ class NebiusClient:
             Response dict with content and metadata, or None if all retries failed
         """
         try:
+            # Build API call parameters
+            api_params = {
+                "model": self.config.model,
+                "messages": messages,
+                "temperature": self.config.temperature,
+                "max_tokens": self.config.max_tokens,
+                "top_p": self.config.top_p,
+            }
+
+            # Add top_k if specified
+            if self.config.top_k is not None:
+                api_params["top_k"] = self.config.top_k
+
             response = await asyncio.wait_for(
-                self.client.chat.completions.create(
-                    model=self.config.model,
-                    messages=messages,
-                    temperature=self.config.temperature,
-                    max_tokens=self.config.max_tokens,
-                    top_p=self.config.top_p,
-                ),
+                self.client.chat.completions.create(**api_params),
                 timeout=self.config.timeout,
             )
 

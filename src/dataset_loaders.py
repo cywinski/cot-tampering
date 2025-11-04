@@ -12,13 +12,12 @@ def load_math500() -> list[dict[str, Any]]:
     Returns:
         List of problem dicts with 'problem' and 'solution' keys
     """
-    dataset = load_dataset("lighteval/MATH", split="train[:500]")
+    dataset = load_dataset("HuggingFaceH4/MATH-500", split="test")
     return [
         {
             "problem": item["problem"],
             "solution": item["solution"],
-            "level": item.get("level", ""),
-            "type": item.get("type", ""),
+            "answer": item["answer"],
         }
         for item in dataset
     ]

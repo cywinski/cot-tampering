@@ -3,10 +3,10 @@
 # Model configuration
 model:
   name: "Qwen/QwQ-32B"  # Qwen reasoning model
-  temperature: 0.7  # Sampling temperature (0.0-2.0, higher = more random)
-  max_tokens: 4096  # Maximum tokens to generate per response (QwQ models benefit from longer context for reasoning)
+  temperature: 0.6  # Sampling temperature (0.0-2.0, higher = more random)
+  max_tokens: 16384  # Maximum tokens to generate per response (QwQ models benefit from longer context for reasoning)
   top_p: 0.95  # Nucleus sampling threshold
-  top_k: 40  # Top-k sampling parameter
+  top_k: 50  # Top-k sampling parameter
 
 # Sampling configuration
 sampling:
@@ -20,9 +20,8 @@ dataset:
 
 # Prompt formatting
 prompt:
-  formatter: "math"  # Use math formatter optimized for math problems
-  system_prompt: "You are a mathematical reasoning expert. Solve the following problem step by step, showing all your work and reasoning clearly."
-  include_cot_prompt: true  # Include chain-of-thought instruction
+  formatter: "raw"  # Use raw formatter - no modifications to dataset prompts
+  field_name: "problem"  # Field name to extract from dataset
 
 # Output configuration
 output:

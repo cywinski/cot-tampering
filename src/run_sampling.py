@@ -13,6 +13,7 @@ from prompt_formatter import (
     CustomTemplateFormatter,
     FewShotFormatter,
     MathFormatter,
+    RawFormatter,
     SimpleQAFormatter,
 )
 
@@ -42,7 +43,9 @@ def create_formatter(config: dict):
     formatter_type = config.get("formatter", "simple")
     system_prompt = config.get("system_prompt", "You are a helpful assistant.")
 
-    if formatter_type == "simple":
+    if formatter_type == "raw":
+        return RawFormatter(field_name=config.get("field_name", "problem"))
+    elif formatter_type == "simple":
         return SimpleQAFormatter(system_prompt=system_prompt)
     elif formatter_type == "math":
         return MathFormatter(
@@ -100,7 +103,7 @@ def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
         temperature=model_config["temperature"],
         max_tokens=model_config["max_tokens"],
         top_p=model_config["top_p"],
-        top_k=model_config.get("top_k", 40),
+        top_k=model_config.get("top_k"),
         n_responses=sampling_config_dict["n_responses"],
         max_retries=sampling_config_dict["max_retries"],
         timeout=sampling_config_dict["timeout"],
@@ -161,9 +164,9 @@ def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
         print("\n" + "=" * 80)
         print("SAMPLE RESULT")
         print("=" * 80)
-        print(f"\nProblem:")
+        print("\nProblem:")
         print(problems[0].get("problem") or problems[0].get("question", ""))
-        print(f"\nResponse 1:")
+        print("\nResponse 1:")
         print(results[0][0]["content"][:500] + "...")
         print("=" * 80)
 

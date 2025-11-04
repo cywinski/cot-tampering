@@ -2,7 +2,7 @@
 
 # Model configuration
 model:
-  name: "Qwen/QwQ-32B"  # Qwen reasoning model
+  name: "deepseek-ai/DeepSeek-R1-0528"  # Qwen reasoning model
   temperature: 0.6  # Sampling temperature (0.0-2.0, higher = more random)
   max_tokens: 16384  # Maximum tokens to generate per response (QwQ models benefit from longer context for reasoning)
   top_p: 0.95  # Nucleus sampling threshold

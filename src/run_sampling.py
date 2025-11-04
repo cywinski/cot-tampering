@@ -1,6 +1,7 @@
 # ABOUTME: Production script for running LLM sampling experiments with YAML configuration
 # ABOUTME: Handles dataset loading, prompt formatting, parallel sampling, and result saving
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -67,6 +68,51 @@ def create_formatter(config: dict):
         raise ValueError(f"Unknown formatter type: {formatter_type}")
 
 
+async def sample_and_save_prompt(
+    client: NebiusClient,
+    prompt_idx: int,
+    prompt: list[dict[str, str]],
+    problem: dict,
+    output_dir: Path,
+) -> dict:
+    """Sample responses for a single prompt and save immediately.
+
+    Args:
+        client: NebiusClient instance
+        prompt_idx: Index of the prompt (for filename)
+        prompt: Formatted prompt messages
+        problem: Original problem dict
+        output_dir: Directory to save results
+
+    Returns:
+        Dict with success statistics
+    """
+    # Sample responses for this prompt
+    responses = await client.sample_prompt(prompt)
+
+    # Save immediately to individual file
+    output_file = output_dir / f"prompt_{prompt_idx:04d}.json"
+    result_data = {
+        "prompt_index": prompt_idx,
+        "problem": problem,
+        "prompt": prompt,
+        "responses": responses,
+    }
+
+    with open(output_file, "w") as f:
+        json.dump(result_data, f, indent=2)
+
+    # Calculate success stats
+    successful = sum(1 for r in responses if r.get("success", False))
+    total = len(responses)
+
+    print(
+        f"Prompt {prompt_idx:04d}: {successful}/{total} responses saved to {output_file.name}"
+    )
+
+    return {"successful": successful, "total": total, "responses": responses}
+
+
 def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
     """Run LLM sampling experiment from config file.
 
@@ -114,61 +160,45 @@ def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
     print(f"Sampling {sampling_config.n_responses} responses per problem")
     print(f"Total API calls: {len(prompts) * sampling_config.n_responses}")
 
-    # Sample responses
-    print("\nStarting parallel sampling...")
-    results = client.sample_batch_sync(prompts)
-
-    # Check success rate
-    successful_samples = sum(
-        1 for problem_results in results for r in problem_results if r["success"]
-    )
-    total_expected = len(prompts) * sampling_config.n_responses
-    print(f"\nSuccessfully sampled: {successful_samples}/{total_expected} responses")
-    print(f"Success rate: {successful_samples / total_expected * 100:.1f}%")
-
-    # Save results
+    # Setup output directory
     output_config = config["output"]
-    output_dir = Path(output_config["save_dir"])
+    output_dir = Path(output_config["save_dir"]) / dataset_name
     output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"\nSaving results to: {output_dir}/")
 
-    output_format = output_config.get("save_format", "jsonl")
-    output_file = output_dir / f"{dataset_name}_samples.{output_format}"
+    # Sample responses with parallel execution and immediate saving
+    print("\nStarting parallel sampling (saving each prompt as completed)...")
 
-    if output_format == "jsonl":
-        with open(output_file, "w") as f:
-            for problem, responses in zip(problems, results):
-                f.write(
-                    json.dumps(
-                        {
-                            "problem": problem,
-                            "responses": responses,
-                        }
-                    )
-                    + "\n"
-                )
-    else:  # json
-        with open(output_file, "w") as f:
-            json.dump(
-                [
-                    {"problem": problem, "responses": responses}
-                    for problem, responses in zip(problems, results)
-                ],
-                f,
-                indent=2,
-            )
+    async def sample_all():
+        tasks = [
+            sample_and_save_prompt(client, idx, prompt, problem, output_dir)
+            for idx, (prompt, problem) in enumerate(zip(prompts, problems))
+        ]
+        return await asyncio.gather(*tasks)
 
-    print(f"\nResults saved to {output_file}")
+    results = asyncio.run(sample_all())
+
+    # Calculate overall success rate
+    total_successful = sum(r["successful"] for r in results)
+    total_expected = len(prompts) * sampling_config.n_responses
+    print(f"\n{'=' * 80}")
+    print("SAMPLING COMPLETE")
+    print("=" * 80)
+    print(f"Total prompts processed: {len(prompts)}")
+    print(f"Successfully sampled: {total_successful}/{total_expected} responses")
+    print(f"Success rate: {total_successful / total_expected * 100:.1f}%")
+    print(f"Results saved to: {output_dir}/")
 
     # Print sample result
-    if results and results[0] and results[0][0]["success"]:
-        print("\n" + "=" * 80)
-        print("SAMPLE RESULT")
-        print("=" * 80)
+    if results and results[0]["responses"] and results[0]["responses"][0]["success"]:
+        print(f"\n{'=' * 80}")
+        print("SAMPLE RESULT (Prompt 0)")
+        print(f"{'=' * 80}")
         print("\nProblem:")
         print(problems[0].get("problem") or problems[0].get("question", ""))
         print("\nResponse 1:")
-        print(results[0][0]["content"][:500] + "...")
-        print("=" * 80)
+        print(results[0]["responses"][0]["content"][:500] + "...")
+        print(f"{'=' * 80}")
 
 
 if __name__ == "__main__":

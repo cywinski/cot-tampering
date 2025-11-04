@@ -23,11 +23,11 @@ dataset:
 
 # Prompt formatting
 prompt:
-  formatter: "math"  # Formatter type: simple, math, custom, few_shot
+  formatter: "math"  # Formatter type: raw, simple, math, custom, few_shot
   system_prompt: "You are a math expert. Solve the following problem step by step."
   include_cot_prompt: true  # Include chain-of-thought instruction for math problems
 
 # Output configuration
 output:
-  save_dir: "experiments/results"  # Directory to save results
-  save_format: "jsonl"  # Format: json or jsonl
+  save_dir: "experiments/results"  # Base directory (subdirectory per dataset created automatically)
+  # Each prompt's responses saved to individual JSON files: prompt_0000.json, prompt_0001.json, etc.

@@ -68,7 +68,7 @@ prompt:
 # Output
 output:
   save_dir: "experiments/results"
-  save_format: "jsonl"  # json | jsonl
+  # Results saved as individual JSON files per prompt
 ```
 
 ## Available Datasets
@@ -184,11 +184,46 @@ for problem, responses in zip(problems, results):
 
 ## Output Format
 
-Results are saved as JSONL (one JSON object per line):
+Results are saved as **individual JSON files per prompt** in a dataset-specific subdirectory:
+
+```
+experiments/results/
+└── math500/
+    ├── prompt_0000.json
+    ├── prompt_0001.json
+    ├── prompt_0002.json
+    └── ...
+```
+
+Each JSON file contains:
 
 ```json
-{"problem": {...}, "responses": [{"content": "...", "success": true, "usage": {...}}, ...]}
-{"problem": {...}, "responses": [{"content": "...", "success": true, "usage": {...}}, ...]}
+{
+  "prompt_index": 0,
+  "problem": {
+    "problem": "Solve for x: ...",
+    "solution": "...",
+    "level": "Level 5",
+    "type": "Algebra"
+  },
+  "prompt": [
+    {"role": "user", "content": "Solve for x: ..."}
+  ],
+  "responses": [
+    {
+      "content": "Let's solve this step by step...",
+      "success": true,
+      "finish_reason": "stop",
+      "usage": {
+        "prompt_tokens": 45,
+        "completion_tokens": 250,
+        "total_tokens": 295
+      },
+      "model": "Qwen/QwQ-32B"
+    },
+    ...
+  ]
+}
 ```
 
 Each response contains:
@@ -196,7 +231,10 @@ Each response contains:
 - `success`: Whether generation succeeded
 - `finish_reason`: Why generation stopped
 - `usage`: Token usage statistics
+- `model`: Model used for generation
 - `error`: Error message (if failed)
+
+Files are saved **immediately** after all responses for a prompt are sampled, allowing you to monitor progress in real-time.
 
 ## Parallel Sampling
 

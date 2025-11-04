@@ -1,0 +1,30 @@
+# Configuration for MATH-500 dataset sampling with Qwen/QwQ-32B model
+
+# Model configuration
+model:
+  name: "Qwen/QwQ-32B"  # Qwen reasoning model
+  temperature: 0.7  # Sampling temperature (0.0-2.0, higher = more random)
+  max_tokens: 4096  # Maximum tokens to generate per response (QwQ models benefit from longer context for reasoning)
+  top_p: 0.95  # Nucleus sampling threshold
+  top_k: 40  # Top-k sampling parameter
+
+# Sampling configuration
+sampling:
+  n_responses: 5  # Number of responses to sample per problem
+  max_retries: 3  # Maximum retries for failed API calls
+  timeout: 120.0  # Timeout in seconds (longer for reasoning models)
+
+# Dataset configuration
+dataset:
+  name: "math500"  # MATH-500 dataset
+
+# Prompt formatting
+prompt:
+  formatter: "math"  # Use math formatter optimized for math problems
+  system_prompt: "You are a mathematical reasoning expert. Solve the following problem step by step, showing all your work and reasoning clearly."
+  include_cot_prompt: true  # Include chain-of-thought instruction
+
+# Output configuration
+output:
+  save_dir: "experiments/results"  # Directory to save results
+  save_format: "jsonl"  # Format: jsonl for easier streaming and processing

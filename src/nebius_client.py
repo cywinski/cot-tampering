@@ -156,3 +156,19 @@ class NebiusClient:
             List of response lists, one per prompt
         """
         return asyncio.run(self.sample_batch(prompts))
+
+    def sample_prompt_sync(
+        self, messages: list[dict[str, str]]
+    ) -> list[dict[str, Any]]:
+        """Synchronous wrapper for sample_prompt.
+
+        Sample multiple responses for a single prompt. Useful for interactive
+        notebook usage where async/await is inconvenient.
+
+        Args:
+            messages: List of message dicts with 'role' and 'content'
+
+        Returns:
+            List of response dicts, one per requested response
+        """
+        return asyncio.run(self.sample_prompt(messages))

@@ -171,7 +171,14 @@ config = SamplingConfig(
 
 client = NebiusClient(config)
 
-# Sample responses (parallel)
+# Option 1: Sample a single prompt (useful for interactive notebooks)
+single_prompt = prompts[0]
+responses = client.sample_prompt_sync(single_prompt)
+for i, resp in enumerate(responses):
+    if resp['success']:
+        print(f"Response {i+1}: {resp['content']}")
+
+# Option 2: Sample batch of prompts (parallel)
 results = client.sample_batch_sync(prompts)
 
 # results[i] contains n_responses responses for prompts[i]

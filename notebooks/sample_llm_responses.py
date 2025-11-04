@@ -6,7 +6,7 @@
 dataset_name = "math500"
 n_problems = 10
 n_responses_per_problem = 3
-model_name = "meta-llama/Meta-Llama-3.1-70B-Instruct"
+model_name = "deepseek-ai/DeepSeek-R1-0528"
 temperature = 0.7
 max_retries = 3
 
@@ -21,35 +21,11 @@ sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from dataset_loaders import get_dataset, list_available_datasets
 from nebius_client import NebiusClient, SamplingConfig
-from prompt_formatter import MathFormatter, SimpleQAFormatter
+from prompt_formatter import MathFormatter, RawFormatter, SimpleQAFormatter
 
-# %%
-# List available datasets
-print("Available datasets:", list_available_datasets())
-
-# %%
-# Load dataset
-print(f"\nLoading {dataset_name}...")
-problems = get_dataset(dataset_name)
-print(f"Loaded {len(problems)} problems")
-
-# Take subset
-problems = problems[:n_problems]
-print(f"Using first {n_problems} problems")
-
-# %%
 # Create prompt formatter
-formatter = MathFormatter(
-    system_prompt="You are a math expert. Solve the following problem step by step.",
-    include_cot_prompt=True,
-)
+formatter = RawFormatter(field_name="problem")
 
-# Format prompts
-prompts = [formatter.format(problem) for problem in problems]
-print(f"\nExample prompt for first problem:")
-print(json.dumps(prompts[0], indent=2))
-
-# %%
 # Initialize client
 config = SamplingConfig(
     model=model_name,
@@ -63,8 +39,35 @@ print(f"\nClient initialized with model: {config.model}")
 print(f"Will sample {config.n_responses} responses per problem")
 
 # %%
-# Sample responses
-print(f"\nSampling responses for {len(prompts)} problems...")
+# Load dataset
+dataset = get_dataset(dataset_name)
+print(f"Loaded {len(dataset)} problems from {dataset_name}")
+
+# %%
+# Example: Sample responses for a single prompt
+print("\n=== SINGLE PROMPT EXAMPLE ===")
+single_problem = dataset[0]
+single_prompt = formatter.format(single_problem)
+
+print(f"Problem: {single_problem['problem'][:100]}...")
+print(f"\nSampling {n_responses_per_problem} responses...")
+
+# Use sample_prompt_sync for a single prompt
+single_responses = client.sample_prompt_sync(single_prompt)
+
+print(f"\nGot {len(single_responses)} responses")
+for i, resp in enumerate(single_responses):
+    if resp["success"]:
+        print(f"\nResponse {i + 1} (first 200 chars):")
+        print(resp["content"][:200] + "...")
+    else:
+        print(f"\nResponse {i + 1} failed: {resp.get('error', 'Unknown error')}")
+
+# %%
+# Example: Sample responses for multiple prompts (batch)
+print("\n=== BATCH SAMPLING EXAMPLE ===")
+prompts = [formatter.format(dataset[i]) for i in range(n_problems)]
+print(f"\nSampling responses for {n_problems} problems...")
 print("This will run in parallel...")
 
 results = client.sample_batch_sync(prompts)
@@ -76,16 +79,18 @@ successful_samples = sum(
 )
 total_expected = len(prompts) * n_responses_per_problem
 print(f"\nSuccessfully sampled: {successful_samples}/{total_expected} responses")
+print(f"Success rate: {successful_samples / total_expected * 100:.1f}%")
 
 # %%
 # Display sample result
 if results and results[0]:
-    print("\nExample response for first problem:")
-    print("-" * 80)
-    print(f"Problem: {problems[0].get('problem', problems[0].get('question', ''))}")
-    print("-" * 80)
-    print(f"Response 1: {results[0][0]['content'][:500]}...")
-    print("-" * 80)
+    print("\n" + "=" * 80)
+    print("SAMPLE RESULT")
+    print("=" * 80)
+    print(f"\nProblem: {dataset[0].get('problem', '')[:200]}...")
+    if results[0][0]["success"]:
+        print(f"\nResponse 1: {results[0][0]['content'][:500]}...")
+    print("=" * 80)
 
 # %%
 # Save results
@@ -94,11 +99,12 @@ output_dir.mkdir(parents=True, exist_ok=True)
 
 output_file = output_dir / f"{dataset_name}_responses.jsonl"
 with open(output_file, "w") as f:
-    for problem, responses in zip(problems, results):
+    for problem_idx, responses in enumerate(results):
         f.write(
             json.dumps(
                 {
-                    "problem": problem,
+                    "problem_index": problem_idx,
+                    "problem": dataset[problem_idx],
                     "responses": responses,
                 }
             )

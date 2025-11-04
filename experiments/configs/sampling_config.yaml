@@ -6,7 +6,7 @@ model:
   temperature: 0.7  # Sampling temperature (0.0-2.0, higher = more random)
   max_tokens: 2048  # Maximum tokens to generate per response
   top_p: 0.95  # Nucleus sampling threshold
-  top_k: 40  # Top-k sampling parameter
+  top_k: null  # Top-k sampling (not supported by Nebius API, kept for compatibility)
 
 # Sampling configuration
 sampling:

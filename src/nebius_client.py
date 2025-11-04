@@ -67,9 +67,8 @@ class NebiusClient:
                 "top_p": self.config.top_p,
             }
 
-            # Add top_k if specified
-            if self.config.top_k is not None:
-                api_params["top_k"] = self.config.top_k
+            # Note: Nebius API does not support top_k parameter
+            # It is kept in config for compatibility but not passed to API
 
             response = await asyncio.wait_for(
                 self.client.chat.completions.create(**api_params),

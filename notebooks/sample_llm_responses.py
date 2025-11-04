@@ -53,7 +53,7 @@ print(f"Problem: {single_problem['problem'][:100]}...")
 print(f"\nSampling {n_responses_per_problem} responses...")
 
 # Use sample_prompt_sync for a single prompt
-single_responses = client.sample_prompt_sync(single_prompt)
+single_responses = client.sample_prompt(single_prompt)
 
 print(f"\nGot {len(single_responses)} responses")
 for i, resp in enumerate(single_responses):

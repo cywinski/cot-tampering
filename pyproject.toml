@@ -15,4 +15,6 @@ dependencies = [
     "tqdm>=4.66.0",
     "numpy>=2.3.4",
     "matplotlib>=3.10.7",
+    "transformers>=4.57.1",
+    "torch>=2.9.0",
 ]

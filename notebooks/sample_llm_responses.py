@@ -1,41 +1,28 @@
-# ABOUTME: Example script demonstrating how to sample LLM responses using Nebius client
-# ABOUTME: Shows dataset loading, prompt formatting, and parallel sampling with configuration
-
-# %%
-# Parameters
-dataset_name = "math500"
-n_problems = 10
-n_responses_per_problem = 3
-model_name = "deepseek-ai/DeepSeek-R1-0528"
-temperature = 0.7
-max_retries = 3
-
 # %%
 import os
 
-import dotenv
-from openai import OpenAI
+import requests
 
-dotenv.load_dotenv()
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 
-client = OpenAI(
-    base_url="https://api.studio.nebius.com/v1/",
-    api_key=os.getenv("NEBIUS_API_KEY"),
-)
+api_url = "https://openrouter.ai/api/v1/completions"
+headers = {
+    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+    "Content-Type": "application/json",
+}
 
-completion = client.chat.completions.create(
-    model=model_name,
-    messages=[
-        {
-            "role": "system",
-            "content": "You are a chemistry expert. Add jokes about cats to your responses from time to time.",
-        },
-        {"role": "user", "content": "Hello!"},
-    ],
-    max_tokens=10,
-    temperature=1,
-    top_p=1,
-    n=1,
-)
+payload = {
+    "model": "deepseek/deepseek-r1",
+    "prompt": "<｜begin▁of▁sentence｜><｜User｜>What is 2+2?<｜Assistant｜><think>\nI'll",
+    "temperature": 0.6,
+    "top_p": 1,
+    "max_tokens": 10000,
+    "stream": False,
+    "provider": {
+        "only": ["DeepInfra"],
+    },
+}
+
+response = requests.post(api_url, json=payload, headers=headers)
 # %%
-print(completion.to_json())
+print(response.json())

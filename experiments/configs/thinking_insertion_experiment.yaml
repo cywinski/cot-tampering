@@ -1,0 +1,51 @@
+# Configuration for thinking trace insertion experiment
+# This experiment:
+# 1. Loads previously sampled responses with thinking traces
+# 2. Inserts specified text at a random position in the thinking trace
+# 3. Keeps the rest of the original thinking trace (before + insertion + after)
+# 4. Closes the </think> tag and prefills it in the prompt
+# 5. Uses OpenRouter completions API to generate only the final answer after </think>
+
+# Model configuration
+model:
+  name: "deepseek/deepseek-r1"  # Model to use for completions
+  temperature: 0.6  # Sampling temperature
+  max_tokens: 16384  # Maximum tokens to generate
+  top_p: 0.95  # Nucleus sampling parameter
+  timeout: 120  # Request timeout in seconds
+
+# OpenRouter configuration
+openrouter:
+  providers: ["DeepInfra"]  # List of allowed providers (not all support completions API)
+  # Note: Some providers don't support the completions API, so specify compatible ones
+
+# Prompt formatting tokens
+# These tokens are model-specific and ensure correct formatting for the completions API
+prompt_formatting:
+  # Prefix tokens at the start of the prompt
+  prefix_tokens: "<｜begin▁of▁sentence｜><｜User｜>"
+
+  # Assistant prefix tokens
+  assistant_prefix: "<｜Assistant｜>"
+
+  # Thinking tag name (without angle brackets)
+  thinking_tag: "think"
+
+# Experiment configuration
+experiment:
+  # Input: previously sampled responses
+  input_responses_dir: "experiments/results/deepseek-r1/math500"  # Directory with response JSON files
+
+  # Which prompts to process
+  start_index: 0  # Start from this prompt index
+  end_index: null  # End at this index (null = process all)
+
+  # Insertion configuration
+  insertion_text: "WHAT'S UP DOC?"  # Text to insert
+  insertion_position: "random"  # "random", "start", "middle", "end", or specific int
+
+  # Random seed for reproducibility
+  seed: 42
+
+  # Output configuration
+  output_dir: "experiments/results/thinking_insertion"

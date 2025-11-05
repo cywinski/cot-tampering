@@ -13,8 +13,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent))
 
 from dataset_loaders import get_dataset
-from nebius_client import NebiusClient, SamplingConfig
 from prompt_formatter import PromptFormatter
+from sampling_config import SamplingConfig, create_client
 
 
 def load_config(config_path: str) -> dict:
@@ -47,7 +47,7 @@ def create_formatter(config: dict):
 
 
 def sample_and_save_prompt(
-    client: NebiusClient,
+    client,
     prompt_idx: int,
     prompt: list[dict[str, str]],
     problem: dict,
@@ -57,7 +57,7 @@ def sample_and_save_prompt(
     """Sample responses for a single prompt and save immediately.
 
     Args:
-        client: NebiusClient instance
+        client: LLM client instance (NebiusClient or OpenRouterClient)
         prompt_idx: Index of the prompt (for filename)
         prompt: Formatted prompt messages
         problem: Original problem dict
@@ -163,6 +163,9 @@ def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
     model_config = config["model"]
     sampling_config_dict = config["sampling"]
 
+    # Get provider (defaults to nebius for backward compatibility)
+    provider = model_config.get("provider", "nebius")
+
     sampling_config = SamplingConfig(
         model=model_config["name"],
         temperature=model_config["temperature"],
@@ -172,10 +175,19 @@ def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
         n_responses=sampling_config_dict["n_responses"],
         max_retries=sampling_config_dict["max_retries"],
         timeout=sampling_config_dict["timeout"],
+        # OpenRouter-specific options (ignored by Nebius)
+        logprobs=model_config.get("logprobs", False),
+        top_logprobs=model_config.get("top_logprobs", 5),
+        reasoning=model_config.get("reasoning", False),
+        site_url=model_config.get("site_url"),
+        site_name=model_config.get("site_name"),
+        # Thinking tags for wrapping reasoning traces
+        wrap_thinking=model_config.get("wrap_thinking", False),
+        thinking_tag=model_config.get("thinking_tag", "think"),
     )
 
-    client = NebiusClient(sampling_config)
-    print(f"\nInitialized client with model: {sampling_config.model}")
+    client = create_client(provider, sampling_config)
+    print(f"\nInitialized {provider} client with model: {sampling_config.model}")
     print(f"Sampling {sampling_config.n_responses} responses per problem")
     print(f"Total API calls: {len(prompts) * sampling_config.n_responses}")
 

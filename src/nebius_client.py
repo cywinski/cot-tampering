@@ -4,27 +4,17 @@
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
 from typing import Any
 
 from dotenv import load_dotenv
 from openai import OpenAI
 
+try:
+    from .sampling_config import SamplingConfig
+except ImportError:
+    from sampling_config import SamplingConfig
+
 load_dotenv()
-
-
-@dataclass
-class SamplingConfig:
-    """Configuration for LLM sampling."""
-
-    model: str = "meta-llama/Meta-Llama-3.1-70B-Instruct"
-    temperature: float = 0.7
-    max_tokens: int = 2048
-    top_p: float = 0.95
-    top_k: int | None = None
-    n_responses: int = 1
-    max_retries: int = 3
-    timeout: float | None = 60.0  # Set to None for no timeout (useful for reasoning models)
 
 
 class NebiusClient:

@@ -1,17 +1,26 @@
-# Configuration for MATH-500 dataset sampling with Qwen/QwQ-32B model
+# Configuration for MATH-500 dataset sampling with DeepSeek-R1 via OpenRouter
+# Note: OpenRouter returns reasoning traces in separate fields from the final answer,
+# but the client automatically combines them into a single field for compatibility with Nebius.
 
 # Model configuration
 model:
-  provider: "nebius"  # Provider: "nebius" or "openrouter"
-  name: "deepseek-ai/DeepSeek-R1-0528"  # DeepSeek reasoning model
+  provider: "openrouter"  # Provider: "nebius" or "openrouter"
+  name: "deepseek/deepseek-r1"  # DeepSeek reasoning model
   temperature: 0.6  # Sampling temperature (0.0-2.0, higher = more random)
   max_tokens: 16384  # Maximum tokens to generate per response (reasoning models benefit from longer context for reasoning)
   top_p: 0.95  # Nucleus sampling threshold
   top_k: null  # Top-k sampling parameter
-  # OpenRouter-specific options (ignored by Nebius)
-  reasoning: false  # Enable reasoning mode (for reasoning models on OpenRouter)
+
+  # OpenRouter-specific options
+  reasoning: true  # Enable reasoning mode - saves both reasoning trace and final answer
   logprobs: false  # Return log probabilities
   top_logprobs: 5  # Number of top logprobs per token
+
+  # Thinking tags for wrapping reasoning traces (OpenRouter only)
+  wrap_thinking: true  # Wrap reasoning in tags (e.g., <think>...</think>)
+  thinking_tag: "think"  # Tag name to use (will be wrapped as <tag> and </tag>)
+
+  # Optional: OpenRouter rankings
   # site_url: null  # Optional: site URL for OpenRouter rankings
   # site_name: null  # Optional: site name for OpenRouter rankings
 

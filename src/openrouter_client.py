@@ -171,6 +171,19 @@ class OpenRouterClient:
 
         return list(responses)
 
+    async def sample_prompt_async(
+        self, messages: list[dict[str, str]]
+    ) -> list[dict[str, Any]]:
+        """Sample multiple responses for a single prompt in parallel (async).
+
+        Args:
+            messages: List of message dicts with 'role' and 'content'
+
+        Returns:
+            List of response dicts, one per requested response
+        """
+        return await self._sample_prompt_async(messages)
+
     def sample_prompt(
         self, messages: list[dict[str, str]]
     ) -> list[dict[str, Any]]:

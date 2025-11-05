@@ -5,7 +5,7 @@
 # Model configuration
 model:
   provider: "openrouter"  # Provider: "nebius" or "openrouter"
-  name: "deepseek/deepseek-r1"  # DeepSeek reasoning model
+  name: "deepseek/deepseek-r1-0528"  # DeepSeek reasoning model
   temperature: 0.6  # Sampling temperature (0.0-2.0, higher = more random)
   max_tokens: 16384  # Maximum tokens to generate per response (reasoning models benefit from longer context for reasoning)
   top_p: 0.95  # Nucleus sampling threshold
@@ -45,5 +45,5 @@ prompt:
 
 # Output configuration
 output:
-  save_dir: "experiments/results/deepseek-r1/math500v2/samples"  # Base directory for results (subdirectory per dataset will be created)
+  save_dir: "experiments/results/deepseek-r1-0528/samples"  # Base directory for results (subdirectory per dataset will be created)
   # Each prompt's responses saved to individual JSON files: prompt_0000.json, prompt_0001.json, etc.

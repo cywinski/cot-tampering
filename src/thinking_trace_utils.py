@@ -1,6 +1,8 @@
 # ABOUTME: Utilities for extracting and manipulating thinking traces from LLM responses
 # ABOUTME: Supports insertion of text at specific positions and prompt reconstruction
 
+from __future__ import annotations
+
 import random
 import re
 from typing import Literal
@@ -183,6 +185,116 @@ def remove_random_tokens(
     modified_thinking = " ".join(tokens)
 
     return modified_thinking, sorted(removed_positions), n_tokens_to_remove
+
+
+def remove_random_sentences(
+    thinking_trace: str,
+    n_sentences: int | None = None,
+    percentage: float | None = None,
+    seed: int | None = None,
+    sentence_filter: callable | None = None,
+) -> tuple[str, list[int], int]:
+    """Remove random sentences from thinking trace (excluding thinking tags).
+
+    Args:
+        thinking_trace: Original thinking trace content (without <think> tags)
+        n_sentences: Number of sentences to remove (mutually exclusive with percentage)
+        percentage: Percentage of sentences to remove as float 0-1 (1.0 = 100% = remove all sentences)
+        seed: Random seed for reproducibility
+        sentence_filter: Optional function that takes a sentence string and returns True if it's
+                        a candidate for removal. If None, all sentences are candidates.
+                        This enables future classification/categorization of sentences.
+
+    Returns:
+        Tuple of (modified_thinking_trace, removed_positions, n_sentences_removed)
+        - modified_thinking_trace: Thinking trace with sentences removed (can be empty string if 100%)
+        - removed_positions: List of character positions where sentences started (before removal)
+        - n_sentences_removed: Actual number of sentences removed
+    """
+    if n_sentences is None and percentage is None:
+        raise ValueError("Must specify either n_sentences or percentage")
+    if n_sentences is not None and percentage is not None:
+        raise ValueError("Cannot specify both n_sentences and percentage")
+
+    if seed is not None:
+        random.seed(seed)
+
+    # Split into sentences using regex (matches . ! ? followed by space/newline or end of string)
+    # This preserves sentence boundaries
+    sentence_pattern = r'(?<=[.!?])\s+|\n+|$'
+    parts = re.split(sentence_pattern, thinking_trace)
+
+    # Filter out empty strings and reconstruct sentences with their terminators
+    sentences = []
+    current_pos = 0
+    sentence_positions = []
+
+    for part in parts:
+        if part.strip():
+            sentences.append(part)
+            sentence_positions.append(current_pos)
+        current_pos += len(part)
+        # Account for the separator that was consumed by split
+        if current_pos < len(thinking_trace):
+            separator_match = re.match(sentence_pattern, thinking_trace[current_pos:])
+            if separator_match:
+                current_pos += len(separator_match.group(0))
+
+    original_sentence_count = len(sentences)
+
+    if original_sentence_count == 0:
+        return thinking_trace, [], 0
+
+    # Apply sentence filter if provided to get candidate sentences
+    if sentence_filter is not None:
+        candidate_indices = [i for i, sent in enumerate(sentences) if sentence_filter(sent)]
+    else:
+        candidate_indices = list(range(original_sentence_count))
+
+    candidate_count = len(candidate_indices)
+
+    if candidate_count == 0:
+        return thinking_trace, [], 0
+
+    # Calculate number of sentences to remove from candidates
+    if percentage is not None:
+        if not 0 <= percentage <= 1:
+            raise ValueError(f"Percentage must be between 0 and 1, got {percentage}")
+        n_sentences_to_remove = int(candidate_count * percentage)
+        # Special case: if percentage is very small but not 0, remove at least 1 sentence
+        if percentage > 0 and n_sentences_to_remove == 0:
+            n_sentences_to_remove = 1
+    else:
+        n_sentences_to_remove = n_sentences
+
+    # Validate removal count
+    if n_sentences_to_remove > candidate_count:
+        raise ValueError(
+            f"Cannot remove {n_sentences_to_remove} sentences from {candidate_count} candidate sentences"
+        )
+
+    # Special case: removing 100% of all sentences means empty trace
+    if n_sentences_to_remove == original_sentence_count and sentence_filter is None:
+        return "", [], n_sentences_to_remove
+
+    # Select random sentence indices to remove from candidates
+    indices_to_remove = set(
+        random.sample(candidate_indices, n_sentences_to_remove)
+    )
+
+    # Track character positions of removed sentences
+    removed_positions = [sentence_positions[i] for i in sorted(indices_to_remove)]
+
+    # Reconstruct thinking trace without removed sentences
+    kept_sentences = [sent for i, sent in enumerate(sentences) if i not in indices_to_remove]
+
+    # Join sentences with appropriate spacing
+    if kept_sentences:
+        modified_thinking = ' '.join(kept_sentences)
+    else:
+        modified_thinking = ""
+
+    return modified_thinking, removed_positions, n_sentences_to_remove
 
 
 def extract_completion_after_insertion(

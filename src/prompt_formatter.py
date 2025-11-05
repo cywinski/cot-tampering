@@ -1,6 +1,8 @@
 # ABOUTME: Simple template-based prompt formatting using string templates with {} placeholders
 # ABOUTME: Add new templates by adding entries to PROMPT_TEMPLATES dict
 
+from __future__ import annotations
+
 from typing import Any
 
 # Template strings where {} is replaced with the problem/question from the dataset

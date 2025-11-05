@@ -1,13 +1,13 @@
-# Configuration for token removal experiment (CLOSED THINKING MODE)
+# Configuration for sentence removal experiment (CLOSED THINKING MODE)
 # This experiment:
 # 1. Loads previously sampled responses with thinking traces
-# 2. Removes N% of random tokens from the thinking trace
+# 2. Removes N% of random sentences from the thinking trace
 # 3. Closes the </think> tag and prefills it in the prompt
 # 4. Uses OpenRouter completions API to generate only the final answer after </think>
 
 # Model configuration
 model:
-  name: "deepseek/deepseek-r1-0528"
+  name: "deepseek/deepseek-r1"
   temperature: 0.6
   max_tokens: 16384
   top_p: 0.95
@@ -26,16 +26,16 @@ prompt_formatting:
 # Experiment configuration
 experiment:
   # Input: previously sampled responses
-  input_responses_dir: "experiments/results/deepseek-r1-0528/samples/math500"
+  input_responses_dir: "experiments/results/deepseek-r1/math500v2/samples/math500"
 
   # Which prompts to process
   start_index: 0
-  end_index: 10  # Process first 10 for testing
+  end_index: 50  # Process first 10 for testing
   # Note: ALL responses per prompt will be processed
 
-  # Token removal configuration (specify EITHER n_tokens_to_remove OR percentage_to_remove)
-  # n_tokens_to_remove: 50  # Number of random tokens to remove from each trace
-  percentage_to_remove: 0.75  # Percentage of tokens to remove (0.10 = 10%)
+  # Sentence removal configuration (specify EITHER n_sentences_to_remove OR percentage_to_remove)
+  # n_sentences_to_remove: 5  # Number of random sentences to remove from each trace
+  percentage_to_remove: 0.9  # Percentage of sentences to remove (0.0 = baseline, no removal)
 
   # Thinking tag mode
   close_thinking_tag: true  # TRUE = close tag, model generates only answer after </think>
@@ -44,4 +44,4 @@ experiment:
   seed: 42
 
   # Output configuration
-  output_dir: "experiments/results/deepseek-r1-0528/math500/token_removal_closed/0.75"
+  output_dir: "experiments/results/deepseek-r1/math500v2/random_sentence_removal_closed/0.9"

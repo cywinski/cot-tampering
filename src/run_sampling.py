@@ -1,6 +1,7 @@
 # ABOUTME: Production script for running LLM sampling experiments with YAML configuration
 # ABOUTME: Handles dataset loading, prompt formatting, parallel sampling, and result saving
 
+import asyncio
 import json
 import random
 import sys
@@ -46,7 +47,7 @@ def create_formatter(config: dict):
     )
 
 
-def sample_and_save_prompt(
+async def sample_and_save_prompt(
     client,
     prompt_idx: int,
     prompt: list[dict[str, str]],
@@ -54,7 +55,7 @@ def sample_and_save_prompt(
     output_dir: Path,
     total_prompts: int,
 ) -> dict:
-    """Sample responses for a single prompt and save immediately.
+    """Sample responses for a single prompt and save immediately (async).
 
     Args:
         client: LLM client instance (NebiusClient or OpenRouterClient)
@@ -83,8 +84,13 @@ def sample_and_save_prompt(
 
         return {"successful": successful, "total": total, "responses": responses, "skipped": True}
 
-    # Sample responses for this prompt
-    responses = client.sample_prompt(prompt)
+    # Sample responses for this prompt (use async method if available)
+    if hasattr(client, 'sample_prompt_async'):
+        responses = await client.sample_prompt_async(prompt)
+    else:
+        # Fallback to sync method in thread pool
+        loop = asyncio.get_event_loop()
+        responses = await loop.run_in_executor(None, client.sample_prompt, prompt)
 
     # Save immediately to individual file
     result_data = {
@@ -106,6 +112,60 @@ def sample_and_save_prompt(
     )
 
     return {"successful": successful, "total": total, "responses": responses, "skipped": False}
+
+
+async def run_sampling_async(
+    client,
+    prompts: list[list[dict[str, str]]],
+    problems: list[dict],
+    output_dir: Path,
+    config: SamplingConfig,
+) -> list[dict]:
+    """Run sampling asynchronously with optional batching.
+
+    Args:
+        client: LLM client instance
+        prompts: List of formatted prompts
+        problems: List of problem dicts
+        output_dir: Directory to save results
+        config: Sampling configuration
+
+    Returns:
+        List of result dicts
+    """
+    # Determine if we should use parallel batch processing
+    use_batch_processing = config.batch_size > 1 and config.n_responses == 1
+
+    if use_batch_processing:
+        print(f"\nStarting parallel batch sampling (batch_size={config.batch_size})...")
+
+        # Use semaphore to limit concurrent API calls
+        semaphore = asyncio.Semaphore(config.batch_size)
+
+        async def sample_with_semaphore(idx, prompt, problem):
+            async with semaphore:
+                return await sample_and_save_prompt(
+                    client, idx, prompt, problem, output_dir, len(prompts)
+                )
+
+        # Create all tasks
+        tasks = [
+            sample_with_semaphore(idx, prompt, problem)
+            for idx, (prompt, problem) in enumerate(zip(prompts, problems))
+        ]
+
+        # Execute all tasks concurrently (limited by semaphore)
+        results = await asyncio.gather(*tasks)
+    else:
+        print("\nStarting sequential sampling...")
+        results = []
+        for idx, (prompt, problem) in enumerate(zip(prompts, problems)):
+            result = await sample_and_save_prompt(
+                client, idx, prompt, problem, output_dir, len(prompts)
+            )
+            results.append(result)
+
+    return results
 
 
 def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
@@ -175,6 +235,7 @@ def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
         n_responses=sampling_config_dict["n_responses"],
         max_retries=sampling_config_dict["max_retries"],
         timeout=sampling_config_dict["timeout"],
+        batch_size=sampling_config_dict.get("batch_size", 1),
         # OpenRouter-specific options (ignored by Nebius)
         logprobs=model_config.get("logprobs", False),
         top_logprobs=model_config.get("top_logprobs", 5),
@@ -197,13 +258,10 @@ def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"\nSaving results to: {output_dir}/")
 
-    # Sample responses sequentially (one by one)
-    print("\nStarting sequential sampling...")
-
-    results = []
-    for idx, (prompt, problem) in enumerate(zip(prompts, problems)):
-        result = sample_and_save_prompt(client, idx, prompt, problem, output_dir, len(prompts))
-        results.append(result)
+    # Run async sampling
+    results = asyncio.run(
+        run_sampling_async(client, prompts, problems, output_dir, sampling_config)
+    )
 
     # Calculate overall success rate
     total_successful = sum(r["successful"] for r in results)

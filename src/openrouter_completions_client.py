@@ -1,6 +1,8 @@
 # ABOUTME: Client for OpenRouter completions API (raw prompt completions, not chat)
 # ABOUTME: Supports custom prompt formatting tokens and provider filtering for experiments
 
+from __future__ import annotations
+
 import asyncio
 import os
 from typing import Any

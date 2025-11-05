@@ -1,6 +1,8 @@
 # ABOUTME: Shared configuration and client factory for LLM sampling across different providers
 # ABOUTME: Supports Nebius and OpenRouter APIs with unified interface for sampling configuration
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Literal
 
@@ -17,6 +19,7 @@ class SamplingConfig:
     n_responses: int = 1
     max_retries: int = 3
     timeout: float | None = 60.0  # Set to None for no timeout (useful for reasoning models)
+    batch_size: int = 1  # Number of prompts to process in parallel (for n_responses=1)
 
     # OpenRouter-specific options (ignored by Nebius)
     logprobs: bool = False

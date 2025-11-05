@@ -1,6 +1,7 @@
 # ABOUTME: Client for sampling responses from LLMs via Nebius API with parallel sampling per prompt and retry logic
 # ABOUTME: Supports multiple responses per prompt in parallel using ThreadPoolExecutor with automatic failure handling
 
+import asyncio
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -126,6 +127,21 @@ class NebiusClient:
             )
 
         return responses
+
+    async def sample_prompt_async(
+        self, messages: list[dict[str, str]]
+    ) -> list[dict[str, Any]]:
+        """Sample multiple responses for a single prompt in parallel (async).
+
+        Args:
+            messages: List of message dicts with 'role' and 'content'
+
+        Returns:
+            List of response dicts, one per requested response
+        """
+        # Run the sync method in a thread pool
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self.sample_prompt, messages)
 
     def sample_batch(
         self, prompts: list[list[dict[str, str]]]

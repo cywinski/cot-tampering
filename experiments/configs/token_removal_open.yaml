@@ -1,0 +1,47 @@
+# Configuration for token removal experiment (OPEN THINKING MODE)
+# This experiment:
+# 1. Loads previously sampled responses with thinking traces
+# 2. Removes N random tokens from the thinking trace
+# 3. Does NOT close the </think> tag - leaves it open
+# 4. Uses OpenRouter completions API to let model CONTINUE/EXTEND the thinking trace
+
+# Model configuration
+model:
+  name: "deepseek/deepseek-r1"
+  temperature: 0.6
+  max_tokens: 16384
+  top_p: 0.95
+  timeout: 120
+
+# OpenRouter configuration
+openrouter:
+  providers: ["DeepInfra"]
+
+# Prompt formatting tokens
+prompt_formatting:
+  prefix_tokens: "<｜begin▁of▁sentence｜><｜User｜>"
+  assistant_prefix: "<｜Assistant｜>"
+  thinking_tag: "think"
+
+# Experiment configuration
+experiment:
+  # Input: previously sampled responses
+  input_responses_dir: "experiments/results/deepseek-r1/math500/samples"
+
+  # Which prompts to process
+  start_index: 0
+  end_index: 10  # Process first 10 for testing
+  # Note: ALL responses per prompt will be processed
+
+  # Token removal configuration (specify EITHER n_tokens_to_remove OR percentage_to_remove)
+  # n_tokens_to_remove: 50  # Number of random tokens to remove from each trace
+  percentage_to_remove: 0.10  # Percentage of tokens to remove (0.10 = 10%)
+
+  # Thinking tag mode
+  close_thinking_tag: false  # FALSE = leave tag open, model can continue thinking
+
+  # Random seed for reproducibility
+  seed: 42
+
+  # Output configuration
+  output_dir: "experiments/results/token_removal_open"

@@ -1,5 +1,5 @@
-# ABOUTME: Main script for thinking trace insertion experiment
-# ABOUTME: Loads sampled responses, inserts text in thinking traces, and completes with OpenRouter API
+# ABOUTME: Main script for token removal experiment
+# ABOUTME: Loads sampled responses, removes random tokens from thinking traces, and completes with OpenRouter API
 
 import json
 import sys
@@ -15,7 +15,7 @@ from openrouter_completions_client import OpenRouterCompletionsClient
 from thinking_trace_utils import (
     build_completion_prompt,
     extract_thinking_trace,
-    insert_text_in_thinking,
+    remove_random_tokens,
 )
 
 
@@ -53,7 +53,7 @@ def process_single_response(
     config: dict,
     prompt_idx: int,
 ) -> dict:
-    """Process a single response: insert text and generate completion.
+    """Process a single response: remove tokens and generate completion.
 
     Args:
         response: Single response dict
@@ -91,27 +91,30 @@ def process_single_response(
             "error": f"No thinking trace found (looking for <{thinking_tag}> tags)",
         }
 
-    # Insert text in thinking trace
-    insertion_text = exp_config["insertion_text"]
-    insertion_position = exp_config["insertion_position"]
+    # Remove tokens from thinking trace
+    n_tokens = exp_config.get("n_tokens_to_remove")
+    percentage = exp_config.get("percentage_to_remove")
     seed = exp_config.get("seed")
 
     # Use a deterministic seed based on prompt and response indices for reproducibility
-    if seed is not None and insertion_position == "random":
+    if seed is not None:
         deterministic_seed = seed + prompt_idx * 1000 + response_idx
     else:
         deterministic_seed = seed
 
-    thinking_before, thinking_after, prompt_prefix, insert_pos = insert_text_in_thinking(
-        thinking_trace, insertion_text, insertion_position, deterministic_seed
-    )
-
-    # Build complete modified thinking trace (before + insertion + after)
-    modified_thinking_full = thinking_before + insertion_text + thinking_after
-
-    # For the completion, we use the full modified thinking trace
-    # The model will generate only the answer after </think>
-    full_thinking = modified_thinking_full
+    try:
+        modified_thinking, removed_positions, n_tokens_removed = remove_random_tokens(
+            thinking_trace,
+            n_tokens=n_tokens,
+            percentage=percentage,
+            seed=deterministic_seed,
+        )
+    except ValueError as e:
+        return {
+            "response_index": response_idx,
+            "success": False,
+            "error": str(e),
+        }
 
     # Check if we should close the thinking tag or leave it open
     close_thinking_tag = exp_config.get("close_thinking_tag", True)
@@ -121,13 +124,16 @@ def process_single_response(
         user_message=user_message,
         assistant_prefix=fmt_config["assistant_prefix"],
         thinking_tag=thinking_tag,
-        full_thinking=full_thinking,
+        full_thinking=modified_thinking,
         close_thinking_tag=close_thinking_tag,
     )
 
     # Generate completion
+    original_token_count = len(thinking_trace.split())
+    percentage_removed = (n_tokens_removed / original_token_count) * 100 if original_token_count > 0 else 0
+
     print(
-        f"  Response {response_idx}: Generating completion (insertion at pos {insert_pos}/{len(thinking_trace)})..."
+        f"  Response {response_idx}: Generating completion ({n_tokens_removed} tokens removed = {percentage_removed:.1f}% of {original_token_count} tokens)..."
     )
     completion_result = client.complete(completion_prompt)
 
@@ -135,18 +141,20 @@ def process_single_response(
     return {
         "response_index": response_idx,
         "success": completion_result.get("success", False),
-        "modified_thinking_full": modified_thinking_full,
-        "insertion_position": insert_pos,
-        "insertion_text": insertion_text,
+        "modified_thinking_full": modified_thinking,
+        "n_tokens_removed": n_tokens_removed,
+        "percentage_removed": percentage_removed,
+        "original_token_count": original_token_count,
+        "modified_token_count": len(modified_thinking.split()),
         "prompt_sent_to_api": completion_prompt,
         "completion": completion_result,
     }
 
 
-def run_thinking_insertion(
-    config_path: str = "experiments/configs/thinking_insertion_experiment.yaml",
+def run_token_removal(
+    config_path: str = "experiments/configs/token_removal_experiment.yaml",
 ):
-    """Run thinking trace insertion experiment.
+    """Run token removal experiment.
 
     Args:
         config_path: Path to YAML configuration file
@@ -199,6 +207,13 @@ def run_thinking_insertion(
 
     print(f"Processing {len(response_files)} files (indices {start_idx} to {end_idx})")
     print("Processing ALL responses per prompt")
+
+    if exp_config.get("n_tokens_to_remove") is not None:
+        print(f"Removing {exp_config['n_tokens_to_remove']} tokens per trace")
+    elif exp_config.get("percentage_to_remove") is not None:
+        print(f"Removing {exp_config['percentage_to_remove']*100:.1f}% of tokens per trace")
+    else:
+        print("ERROR: Must specify either n_tokens_to_remove or percentage_to_remove")
 
     # Process each file
     all_results = []
@@ -270,10 +285,11 @@ def run_thinking_insertion(
     print("EXPERIMENT COMPLETE")
     print("=" * 80)
     print(f"Total responses processed: {total}")
-    print(f"Successful: {successful}/{total} ({successful/total*100:.1f}%)")
-    print(f"Failed: {total - successful}/{total}")
+    if total > 0:
+        print(f"Successful: {successful}/{total} ({successful/total*100:.1f}%)")
+        print(f"Failed: {total - successful}/{total}")
     print(f"Results saved to: {output_dir}")
 
 
 if __name__ == "__main__":
-    fire.Fire(run_thinking_insertion)
+    fire.Fire(run_token_removal)

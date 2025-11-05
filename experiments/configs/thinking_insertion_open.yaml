@@ -1,10 +1,10 @@
-# Configuration for thinking trace insertion experiment (CLOSED THINKING MODE)
+# Configuration for thinking trace insertion experiment (OPEN THINKING MODE)
 # This experiment:
 # 1. Loads previously sampled responses with thinking traces
 # 2. Inserts specified text at a random position in the thinking trace
 # 3. Keeps the rest of the original thinking trace (before + insertion + after)
-# 4. Closes the </think> tag and prefills it in the prompt
-# 5. Uses OpenRouter completions API to generate only the final answer after </think>
+# 4. Does NOT close the </think> tag - leaves it open
+# 5. Uses OpenRouter completions API to let model CONTINUE/EXTEND the thinking trace
 
 # Model configuration
 model:
@@ -17,10 +17,8 @@ model:
 # OpenRouter configuration
 openrouter:
   providers: ["DeepInfra"]  # List of allowed providers (not all support completions API)
-  # Note: Some providers don't support the completions API, so specify compatible ones
 
 # Prompt formatting tokens
-# These tokens are model-specific and ensure correct formatting for the completions API
 prompt_formatting:
   # Prefix tokens at the start of the prompt
   prefix_tokens: "<｜begin▁of▁sentence｜><｜User｜>"
@@ -46,10 +44,10 @@ experiment:
   insertion_position: "random"  # "random", "start", "middle", "end", or specific int
 
   # Thinking tag mode
-  close_thinking_tag: true  # TRUE = close tag, model generates only answer after </think>
+  close_thinking_tag: false  # FALSE = leave tag open, model can continue thinking
 
   # Random seed for reproducibility
   seed: 42
 
   # Output configuration
-  output_dir: "experiments/results/thinking_insertion_closed"
+  output_dir: "experiments/results/thinking_insertion_open"

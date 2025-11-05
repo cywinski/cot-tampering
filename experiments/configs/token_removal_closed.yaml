@@ -35,7 +35,7 @@ experiment:
 
   # Token removal configuration (specify EITHER n_tokens_to_remove OR percentage_to_remove)
   # n_tokens_to_remove: 50  # Number of random tokens to remove from each trace
-  percentage_to_remove: 0.30  # Percentage of tokens to remove (0.10 = 10%)
+  percentage_to_remove: 0.0  # Percentage of tokens to remove (0.10 = 10%)
 
   # Thinking tag mode
   close_thinking_tag: true  # TRUE = close tag, model generates only answer after </think>
@@ -44,4 +44,4 @@ experiment:
   seed: 42
 
   # Output configuration
-  output_dir: "experiments/results/deepseek-r1/math500/token_removal/0.30"
+  output_dir: "experiments/results/deepseek-r1/math500/token_removal/0.0"

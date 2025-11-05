@@ -1,22 +1,20 @@
 # ABOUTME: Production script for running LLM sampling experiments with YAML configuration
 # ABOUTME: Handles dataset loading, prompt formatting, parallel sampling, and result saving
 
-import asyncio
 import json
+import random
+import sys
 from pathlib import Path
 
 import fire
 import yaml
 
+# Add src directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
+
 from dataset_loaders import get_dataset
 from nebius_client import NebiusClient, SamplingConfig
-from prompt_formatter import (
-    CustomTemplateFormatter,
-    FewShotFormatter,
-    MathFormatter,
-    RawFormatter,
-    SimpleQAFormatter,
-)
+from prompt_formatter import PromptFormatter
 
 
 def load_config(config_path: str) -> dict:
@@ -41,39 +39,20 @@ def create_formatter(config: dict):
     Returns:
         PromptFormatter instance
     """
-    formatter_type = config.get("formatter", "simple")
-    system_prompt = config.get("system_prompt", "You are a helpful assistant.")
-
-    if formatter_type == "raw":
-        return RawFormatter(field_name=config.get("field_name", "problem"))
-    elif formatter_type == "simple":
-        return SimpleQAFormatter(system_prompt=system_prompt)
-    elif formatter_type == "math":
-        return MathFormatter(
-            system_prompt=system_prompt,
-            include_cot_prompt=config.get("include_cot_prompt", True),
-        )
-    elif formatter_type == "custom":
-        return CustomTemplateFormatter(
-            system_prompt=system_prompt,
-            user_template=config.get("user_template", "{question}"),
-            problem_key=config.get("problem_key", "question"),
-        )
-    elif formatter_type == "few_shot":
-        return FewShotFormatter(
-            system_prompt=system_prompt,
-            examples=config.get("examples", []),
-        )
-    else:
-        raise ValueError(f"Unknown formatter type: {formatter_type}")
+    return PromptFormatter(
+        template_name=config.get("template", "raw"),
+        field_name=config.get("field_name", "problem"),
+        custom_template=config.get("custom_template"),
+    )
 
 
-async def sample_and_save_prompt(
+def sample_and_save_prompt(
     client: NebiusClient,
     prompt_idx: int,
     prompt: list[dict[str, str]],
     problem: dict,
     output_dir: Path,
+    total_prompts: int,
 ) -> dict:
     """Sample responses for a single prompt and save immediately.
 
@@ -83,15 +62,31 @@ async def sample_and_save_prompt(
         prompt: Formatted prompt messages
         problem: Original problem dict
         output_dir: Directory to save results
+        total_prompts: Total number of prompts (for progress display)
 
     Returns:
         Dict with success statistics
     """
+    output_file = output_dir / f"prompt_{prompt_idx:04d}.json"
+
+    # Check if file already exists
+    if output_file.exists():
+        print(f"Prompt {prompt_idx:04d}/{total_prompts:04d}: already exists, skipping")
+
+        # Load existing file to get statistics
+        with open(output_file, "r") as f:
+            existing_data = json.load(f)
+
+        responses = existing_data.get("responses", [])
+        successful = sum(1 for r in responses if r.get("success", False))
+        total = len(responses)
+
+        return {"successful": successful, "total": total, "responses": responses, "skipped": True}
+
     # Sample responses for this prompt
-    responses = await client.sample_prompt(prompt)
+    responses = client.sample_prompt(prompt)
 
     # Save immediately to individual file
-    output_file = output_dir / f"prompt_{prompt_idx:04d}.json"
     result_data = {
         "prompt_index": prompt_idx,
         "problem": problem,
@@ -107,10 +102,10 @@ async def sample_and_save_prompt(
     total = len(responses)
 
     print(
-        f"Prompt {prompt_idx:04d}: {successful}/{total} responses saved to {output_file.name}"
+        f"Prompt {prompt_idx:04d}/{total_prompts:04d}: {successful}/{total} responses saved"
     )
 
-    return {"successful": successful, "total": total, "responses": responses}
+    return {"successful": successful, "total": total, "responses": responses, "skipped": False}
 
 
 def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
@@ -127,15 +122,39 @@ def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
     dataset_config = config["dataset"]
     dataset_name = dataset_config["name"]
     dataset_params = dataset_config.get("params", {})
+    dataset_limit = dataset_config.get("limit")
 
     print(f"\nLoading dataset: {dataset_name}")
     problems = get_dataset(dataset_name, **dataset_params)
-    print(f"Loaded {len(problems)} problems")
+
+    # Apply limit if specified
+    if dataset_limit is not None:
+        problems = problems[:dataset_limit]
+        print(f"Loaded {len(problems)} problems (limited from full dataset)")
+    else:
+        print(f"Loaded {len(problems)} problems")
+
+    # Apply random sampling if specified
+    random_sample = dataset_config.get("random_sample")
+    if random_sample is not None:
+        if random_sample > len(problems):
+            print(
+                f"Warning: random_sample ({random_sample}) > dataset size ({len(problems)}), using all problems"
+            )
+        else:
+            # Set seed for reproducibility if specified
+            random_seed = dataset_config.get("random_seed", 42)
+            random.seed(random_seed)
+            problems = random.sample(problems, random_sample)
+            print(
+                f"Randomly sampled {len(problems)} problems (seed={random_seed})"
+            )
 
     # Create prompt formatter
     prompt_config = config["prompt"]
     formatter = create_formatter(prompt_config)
-    print(f"Using formatter: {prompt_config['formatter']}")
+    template_name = prompt_config.get("template", "raw")
+    print(f"Using template: {template_name}")
 
     # Format prompts
     prompts = [formatter.format(problem) for problem in problems]
@@ -166,25 +185,26 @@ def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"\nSaving results to: {output_dir}/")
 
-    # Sample responses with parallel execution and immediate saving
-    print("\nStarting parallel sampling (saving each prompt as completed)...")
+    # Sample responses sequentially (one by one)
+    print("\nStarting sequential sampling...")
 
-    async def sample_all():
-        tasks = [
-            sample_and_save_prompt(client, idx, prompt, problem, output_dir)
-            for idx, (prompt, problem) in enumerate(zip(prompts, problems))
-        ]
-        return await asyncio.gather(*tasks)
-
-    results = asyncio.run(sample_all())
+    results = []
+    for idx, (prompt, problem) in enumerate(zip(prompts, problems)):
+        result = sample_and_save_prompt(client, idx, prompt, problem, output_dir, len(prompts))
+        results.append(result)
 
     # Calculate overall success rate
     total_successful = sum(r["successful"] for r in results)
     total_expected = len(prompts) * sampling_config.n_responses
+    total_skipped = sum(1 for r in results if r.get("skipped", False))
+    total_sampled = len(prompts) - total_skipped
+
     print(f"\n{'=' * 80}")
     print("SAMPLING COMPLETE")
     print("=" * 80)
     print(f"Total prompts processed: {len(prompts)}")
+    print(f"  - Newly sampled: {total_sampled}")
+    print(f"  - Skipped (already existed): {total_skipped}")
     print(f"Successfully sampled: {total_successful}/{total_expected} responses")
     print(f"Success rate: {total_successful / total_expected * 100:.1f}%")
     print(f"Results saved to: {output_dir}/")

@@ -1,13 +1,14 @@
-# ABOUTME: Client for sampling responses from LLMs via Nebius API with parallel sampling and retry logic
-# ABOUTME: Supports multiple responses per prompt with automatic failure handling and retries
+# ABOUTME: Client for sampling responses from LLMs via Nebius API with parallel sampling per prompt and retry logic
+# ABOUTME: Supports multiple responses per prompt in parallel using ThreadPoolExecutor with automatic failure handling
 
-import asyncio
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any
 
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
+from openai import OpenAI
 
 load_dotenv()
 
@@ -23,11 +24,11 @@ class SamplingConfig:
     top_k: int | None = None
     n_responses: int = 1
     max_retries: int = 3
-    timeout: float = 60.0
+    timeout: float | None = 60.0  # Set to None for no timeout (useful for reasoning models)
 
 
 class NebiusClient:
-    """Client for sampling from LLMs through Nebius API with parallel sampling."""
+    """Client for sampling from LLMs through Nebius API with parallel sampling per prompt."""
 
     def __init__(self, config: SamplingConfig):
         """Initialize the Nebius client.
@@ -40,14 +41,22 @@ class NebiusClient:
         if not api_key:
             raise ValueError("NEBIUS_API_KEY environment variable not set")
 
-        self.client = AsyncOpenAI(
-            api_key=api_key,
-            base_url="https://api.studio.nebius.com/v1",
-        )
+        # Initialize client with optional timeout
+        client_kwargs = {
+            "api_key": api_key,
+            "base_url": "https://api.studio.nebius.com/v1",
+        }
+        if self.config.timeout is not None:
+            client_kwargs["timeout"] = self.config.timeout
 
-    async def _sample_single_response(
+        self.client = OpenAI(**client_kwargs)
+
+        # Thread pool for parallel sampling
+        self.executor = ThreadPoolExecutor(max_workers=self.config.n_responses)
+
+    def _sample_single_response(
         self, messages: list[dict[str, str]], retry_count: int = 0
-    ) -> dict[str, Any] | None:
+    ) -> dict[str, Any]:
         """Sample a single response with retry logic.
 
         Args:
@@ -55,7 +64,7 @@ class NebiusClient:
             retry_count: Current retry attempt number
 
         Returns:
-            Response dict with content and metadata, or None if all retries failed
+            Response dict with content and metadata
         """
         try:
             # Build API call parameters
@@ -70,10 +79,7 @@ class NebiusClient:
             # Note: Nebius API does not support top_k parameter
             # It is kept in config for compatibility but not passed to API
 
-            response = await asyncio.wait_for(
-                self.client.chat.completions.create(**api_params),
-                timeout=self.config.timeout,
-            )
+            response = self.client.chat.completions.create(**api_params)
 
             return {
                 "content": response.choices[0].message.content,
@@ -90,8 +96,8 @@ class NebiusClient:
         except Exception as e:
             if retry_count < self.config.max_retries:
                 # Exponential backoff
-                await asyncio.sleep(2**retry_count)
-                return await self._sample_single_response(messages, retry_count + 1)
+                time.sleep(2**retry_count)
+                return self._sample_single_response(messages, retry_count + 1)
             else:
                 return {
                     "content": None,
@@ -99,7 +105,7 @@ class NebiusClient:
                     "success": False,
                 }
 
-    async def sample_prompt(
+    def sample_prompt(
         self, messages: list[dict[str, str]]
     ) -> list[dict[str, Any]]:
         """Sample multiple responses for a single prompt in parallel.
@@ -110,28 +116,33 @@ class NebiusClient:
         Returns:
             List of response dicts, one per requested response
         """
-        tasks = [
-            self._sample_single_response(messages)
+        # Submit all sampling tasks in parallel
+        futures = [
+            self.executor.submit(self._sample_single_response, messages)
             for _ in range(self.config.n_responses)
         ]
-        responses = await asyncio.gather(*tasks)
 
-        # Filter out None responses and check if we got all responses
-        valid_responses = [r for r in responses if r is not None]
+        # Gather results as they complete
+        responses = []
+        for future in as_completed(futures):
+            response = future.result()
+            responses.append(response)
 
-        if len(valid_responses) < self.config.n_responses:
+        # Check if we got all successful responses
+        successful = sum(1 for r in responses if r.get("success", False))
+        if successful < self.config.n_responses:
             print(
-                f"Warning: Only got {len(valid_responses)}/{self.config.n_responses} responses"
+                f"Warning: Only got {successful}/{self.config.n_responses} successful responses"
             )
 
-        return valid_responses
+        return responses
 
-    async def sample_batch(
+    def sample_batch(
         self, prompts: list[list[dict[str, str]]]
     ) -> list[list[dict[str, Any]]]:
         """Sample responses for a batch of prompts.
 
-        Each prompt gets n_responses samples in parallel.
+        Each prompt gets n_responses samples in parallel, prompts processed sequentially.
 
         Args:
             prompts: List of prompts, where each prompt is a list of message dicts
@@ -139,35 +150,13 @@ class NebiusClient:
         Returns:
             List of response lists, one per prompt
         """
-        tasks = [self.sample_prompt(messages) for messages in prompts]
-        results = await asyncio.gather(*tasks)
+        results = []
+        for messages in prompts:
+            responses = self.sample_prompt(messages)
+            results.append(responses)
         return results
 
-    def sample_batch_sync(
-        self, prompts: list[list[dict[str, str]]]
-    ) -> list[list[dict[str, Any]]]:
-        """Synchronous wrapper for sample_batch.
-
-        Args:
-            prompts: List of prompts, where each prompt is a list of message dicts
-
-        Returns:
-            List of response lists, one per prompt
-        """
-        return asyncio.run(self.sample_batch(prompts))
-
-    def sample_prompt_sync(
-        self, messages: list[dict[str, str]]
-    ) -> list[dict[str, Any]]:
-        """Synchronous wrapper for sample_prompt.
-
-        Sample multiple responses for a single prompt. Useful for interactive
-        notebook usage where async/await is inconvenient.
-
-        Args:
-            messages: List of message dicts with 'role' and 'content'
-
-        Returns:
-            List of response dicts, one per requested response
-        """
-        return asyncio.run(self.sample_prompt(messages))
+    def __del__(self):
+        """Cleanup thread pool on deletion."""
+        if hasattr(self, 'executor'):
+            self.executor.shutdown(wait=True)

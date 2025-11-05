@@ -2,9 +2,9 @@
 
 # Model configuration
 model:
-  name: "deepseek-ai/DeepSeek-R1-0528"  # Qwen reasoning model
+  name: "deepseek-ai/DeepSeek-R1-0528"  # DeepSeek reasoning model
   temperature: 0.6  # Sampling temperature (0.0-2.0, higher = more random)
-  max_tokens: 10  # Maximum tokens to generate per response (QwQ models benefit from longer context for reasoning)
+  max_tokens: 16384  # Maximum tokens to generate per response (reasoning models benefit from longer context for reasoning)
   top_p: 0.95  # Nucleus sampling threshold
   top_k: null  # Top-k sampling parameter
 
@@ -12,18 +12,21 @@ model:
 sampling:
   n_responses: 5  # Number of responses to sample per problem
   max_retries: 3  # Maximum retries for failed API calls
-  timeout: 120.0  # Timeout in seconds (longer for reasoning models)
+  timeout: null  # Timeout in seconds (null = no timeout, important for reasoning models that may take very long)
 
 # Dataset configuration
 dataset:
   name: "math500"  # MATH-500 dataset
+  random_sample: 50  # Randomly sample N problems from dataset (null to use all)
+  random_seed: 42  # Random seed for reproducibility
 
 # Prompt formatting
 prompt:
-  formatter: "raw"  # Use raw formatter - no modifications to dataset prompts
+  template: "cot_introspection"  # Template name from PROMPT_TEMPLATES in src/prompt_formatter.py
   field_name: "problem"  # Field name to extract from dataset
+  # custom_template: null  # Optional: custom template string with {} placeholder (overrides template)
 
 # Output configuration
 output:
-  save_dir: "experiments/results"  # Base directory for results (subdirectory per dataset will be created)
+  save_dir: "experiments/results/deepseek-r1"  # Base directory for results (subdirectory per dataset will be created)
   # Each prompt's responses saved to individual JSON files: prompt_0000.json, prompt_0001.json, etc.

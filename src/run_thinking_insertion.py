@@ -102,8 +102,10 @@ def process_single_response(
     else:
         deterministic_seed = seed
 
-    thinking_before, thinking_after, prompt_prefix, insert_pos = insert_text_in_thinking(
-        thinking_trace, insertion_text, insertion_position, deterministic_seed
+    thinking_before, thinking_after, prompt_prefix, insert_pos = (
+        insert_text_in_thinking(
+            thinking_trace, insertion_text, insertion_position, deterministic_seed
+        )
     )
 
     # Build complete modified thinking trace (before + insertion + after)
@@ -131,6 +133,23 @@ def process_single_response(
     )
     completion_result = client.complete(completion_prompt)
 
+    # Analyze the completion
+    generated_text = completion_result.get("text", "")
+    reasoning_content = completion_result.get("reasoning", "")
+    completion_tokens = completion_result.get("usage", {}).get("completion_tokens", 0)
+
+    # For open mode with reasoning models, reasoning might be in separate field
+    # Combine reasoning + text to get full generated content
+    if reasoning_content:
+        full_generated = reasoning_content + f"</{thinking_tag}>\n" + generated_text
+    else:
+        full_generated = generated_text
+
+    # Reconstruct full response (prompt + completion)
+    full_reconstructed_response = completion_prompt + full_generated
+
+    print(f"  Response {response_idx}: Generated {completion_tokens} tokens, ")
+
     # Build result
     return {
         "response_index": response_idx,
@@ -138,8 +157,11 @@ def process_single_response(
         "modified_thinking_full": modified_thinking_full,
         "insertion_position": insert_pos,
         "insertion_text": insertion_text,
+        "close_thinking_tag_mode": close_thinking_tag,
+        "completion_token_count": completion_tokens,
         "prompt_sent_to_api": completion_prompt,
         "completion": completion_result,
+        "full_reconstructed_response": full_reconstructed_response,
     }
 
 
@@ -190,7 +212,9 @@ def run_thinking_insertion(
     end_idx = exp_config.get("end_index")
     if end_idx is not None:
         response_files = [
-            f for f in response_files if start_idx <= int(f.stem.split("_")[1]) < end_idx
+            f
+            for f in response_files
+            if start_idx <= int(f.stem.split("_")[1]) < end_idx
         ]
     else:
         response_files = [
@@ -258,7 +282,9 @@ def run_thinking_insertion(
             json.dump(output_data, f, indent=2)
 
         successful = sum(1 for r in prompt_results if r.get("success", False))
-        print(f"  Saved {successful}/{len(prompt_results)} successful responses to {output_file.name}")
+        print(
+            f"  Saved {successful}/{len(prompt_results)} successful responses to {output_file.name}"
+        )
 
         all_results.extend(prompt_results)
 
@@ -270,7 +296,7 @@ def run_thinking_insertion(
     print("EXPERIMENT COMPLETE")
     print("=" * 80)
     print(f"Total responses processed: {total}")
-    print(f"Successful: {successful}/{total} ({successful/total*100:.1f}%)")
+    print(f"Successful: {successful}/{total} ({successful / total * 100:.1f}%)")
     print(f"Failed: {total - successful}/{total}")
     print(f"Results saved to: {output_dir}")
 

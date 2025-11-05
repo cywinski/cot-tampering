@@ -1,0 +1,48 @@
+# Configuration for MATH-500 dataset sampling with DeepSeek-R1 via OpenRouter
+# Note: OpenRouter returns reasoning traces in separate fields from the final answer,
+# but the client automatically combines them into a single field for compatibility with Nebius.
+
+# Model configuration
+model:
+  provider: "openrouter"  # Provider: "nebius" or "openrouter"
+  name: "deepseek/deepseek-r1"  # DeepSeek reasoning model
+  temperature: 0.6  # Sampling temperature (0.0-2.0, higher = more random)
+  max_tokens: 16384  # Maximum tokens to generate per response (reasoning models benefit from longer context for reasoning)
+  top_p: 0.95  # Nucleus sampling threshold
+  top_k: null  # Top-k sampling parameter
+
+  # OpenRouter-specific options
+  reasoning: true  # Enable reasoning mode - saves both reasoning trace and final answer
+  logprobs: false  # Return log probabilities
+  top_logprobs: 5  # Number of top logprobs per token
+
+  # Thinking tags for wrapping reasoning traces (OpenRouter only)
+  wrap_thinking: true  # Wrap reasoning in tags (e.g., <think>...</think>)
+  thinking_tag: "think"  # Tag name to use (will be wrapped as <tag> and </tag>)
+
+  # Optional: OpenRouter rankings
+  # site_url: null  # Optional: site URL for OpenRouter rankings
+  # site_name: null  # Optional: site name for OpenRouter rankings
+
+# Sampling configuration
+sampling:
+  n_responses: 5  # Number of responses to sample per problem
+  max_retries: 3  # Maximum retries for failed API calls
+  timeout: null  # Timeout in seconds (null = no timeout, important for reasoning models that may take very long)
+
+# Dataset configuration
+dataset:
+  name: "alpaca"  # MATH-500 dataset
+  random_sample: 10  # Randomly sample N problems from dataset (null to use all)
+  random_seed: 42  # Random seed for reproducibility
+
+# Prompt formatting
+prompt:
+  template: "alpaca_standard"  # Template name from PROMPT_TEMPLATES in src/prompt_formatter.py
+  field_name: "instruction"  # Field name to extract from dataset
+  # custom_template: null  # Optional: custom template string with {} placeholder (overrides template)
+
+# Output configuration
+output:
+  save_dir: "experiments/results/deepseek-r1/alpaca/samples"  # Base directory for results (subdirectory per dataset will be created)
+  # Each prompt's responses saved to individual JSON files: prompt_0000.json, prompt_0001.json, etc.

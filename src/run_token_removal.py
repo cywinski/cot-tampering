@@ -130,12 +130,32 @@ def process_single_response(
 
     # Generate completion
     original_token_count = len(thinking_trace.split())
-    percentage_removed = (n_tokens_removed / original_token_count) * 100 if original_token_count > 0 else 0
+    percentage_removed = (
+        (n_tokens_removed / original_token_count) * 100
+        if original_token_count > 0
+        else 0
+    )
 
     print(
         f"  Response {response_idx}: Generating completion ({n_tokens_removed} tokens removed = {percentage_removed:.1f}% of {original_token_count} tokens)..."
     )
     completion_result = client.complete(completion_prompt)
+    # Analyze the completion
+    generated_text = completion_result.get("text", "")
+    reasoning_content = completion_result.get("reasoning", "")
+    completion_tokens = completion_result.get("usage", {}).get("completion_tokens", 0)
+
+    # For open mode with reasoning models, reasoning might be in separate field
+    # Combine reasoning + text to get full generated content
+    if reasoning_content:
+        full_generated = reasoning_content + f"</{thinking_tag}>\n" + generated_text
+    else:
+        full_generated = generated_text
+
+    # Reconstruct full response (prompt + completion)
+    full_reconstructed_response = completion_prompt + full_generated
+
+    print(f"  Response {response_idx}: Generated {completion_tokens} tokens, ")
 
     # Build result
     return {
@@ -146,8 +166,11 @@ def process_single_response(
         "percentage_removed": percentage_removed,
         "original_token_count": original_token_count,
         "modified_token_count": len(modified_thinking.split()),
+        "close_thinking_tag_mode": close_thinking_tag,
+        "completion_token_count": completion_tokens,
         "prompt_sent_to_api": completion_prompt,
         "completion": completion_result,
+        "full_reconstructed_response": full_reconstructed_response,
     }
 
 
@@ -198,7 +221,9 @@ def run_token_removal(
     end_idx = exp_config.get("end_index")
     if end_idx is not None:
         response_files = [
-            f for f in response_files if start_idx <= int(f.stem.split("_")[1]) < end_idx
+            f
+            for f in response_files
+            if start_idx <= int(f.stem.split("_")[1]) < end_idx
         ]
     else:
         response_files = [
@@ -211,7 +236,9 @@ def run_token_removal(
     if exp_config.get("n_tokens_to_remove") is not None:
         print(f"Removing {exp_config['n_tokens_to_remove']} tokens per trace")
     elif exp_config.get("percentage_to_remove") is not None:
-        print(f"Removing {exp_config['percentage_to_remove']*100:.1f}% of tokens per trace")
+        print(
+            f"Removing {exp_config['percentage_to_remove'] * 100:.1f}% of tokens per trace"
+        )
     else:
         print("ERROR: Must specify either n_tokens_to_remove or percentage_to_remove")
 
@@ -273,7 +300,9 @@ def run_token_removal(
             json.dump(output_data, f, indent=2)
 
         successful = sum(1 for r in prompt_results if r.get("success", False))
-        print(f"  Saved {successful}/{len(prompt_results)} successful responses to {output_file.name}")
+        print(
+            f"  Saved {successful}/{len(prompt_results)} successful responses to {output_file.name}"
+        )
 
         all_results.extend(prompt_results)
 
@@ -286,7 +315,7 @@ def run_token_removal(
     print("=" * 80)
     print(f"Total responses processed: {total}")
     if total > 0:
-        print(f"Successful: {successful}/{total} ({successful/total*100:.1f}%)")
+        print(f"Successful: {successful}/{total} ({successful / total * 100:.1f}%)")
         print(f"Failed: {total - successful}/{total}")
     print(f"Results saved to: {output_dir}")
 

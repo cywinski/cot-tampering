@@ -90,8 +90,8 @@ class OpenRouterCompletionsClient:
             choice = data["choices"][0]
 
             result = {
-                "text": choice["text"],
-                "finish_reason": choice["finish_reason"],
+                "text": choice.get("text", ""),
+                "finish_reason": choice.get("finish_reason"),
                 "usage": {
                     "prompt_tokens": data["usage"]["prompt_tokens"],
                     "completion_tokens": data["usage"]["completion_tokens"],
@@ -100,6 +100,18 @@ class OpenRouterCompletionsClient:
                 "model": data["model"],
                 "success": True,
             }
+
+            # Check for reasoning/thinking content in response
+            # OpenRouter may return reasoning in different fields depending on the model
+            if "reasoning_content" in choice:
+                result["reasoning_content"] = choice["reasoning_content"]
+
+            if "reasoning" in choice:
+                result["reasoning"] = choice["reasoning"]
+
+            # Store the full raw response for debugging
+            result["raw_choice"] = choice
+            result["raw_response"] = data
 
             return result
 

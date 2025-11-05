@@ -114,6 +114,23 @@ def load_hellaswag() -> list[dict[str, Any]]:
     ]
 
 
+def load_alpaca() -> list[dict[str, Any]]:
+    """Load Alpaca dataset.
+
+    Returns:
+        List of problem dicts with instructions and inputs
+    """
+    dataset = load_dataset("tatsu-lab/alpaca", split="train")
+    return [
+        {
+            "instruction": item["instruction"],
+            "input": item["input"],
+            "output": item["output"],
+        }
+        for item in dataset
+    ]
+
+
 # Dataset registry: maps dataset names to loader functions
 DATASET_REGISTRY: dict[str, Callable[[], list[dict[str, Any]]]] = {
     "math500": load_math500,
@@ -122,6 +139,7 @@ DATASET_REGISTRY: dict[str, Callable[[], list[dict[str, Any]]]] = {
     "truthfulqa": load_truthfulqa,
     "arc_challenge": load_arc_challenge,
     "hellaswag": load_hellaswag,
+    "alpaca": load_alpaca,
 }
 
 

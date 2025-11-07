@@ -1,0 +1,60 @@
+# Configuration for CoT substitution experiment
+# This experiment:
+# 1. Loads prompts from a dataset
+# 2. Formats prompts using a template
+# 3. For each prompt, finds the corresponding file in source_responses_dir
+# 4. Extracts the CoT (thinking trace) from that file
+# 5. Uses that CoT as prefill for inference on the same prompt
+# 6. Uses OpenRouter completions API to let the model complete the rest of the thinking trace
+
+# Model configuration
+model:
+  name: "deepseek/deepseek-r1"
+  temperature: 0.6
+  max_tokens: 16384
+  top_p: 0.95
+  timeout: 120
+
+# OpenRouter configuration
+openrouter:
+  providers: ["DeepInfra"]
+
+# Prompt formatting tokens
+prompt_formatting:
+  prefix_tokens: "<｜begin▁of▁sentence｜><｜User｜>"
+  postfix_tokens: ""  # Optional: e.g., "<|im_end|>\n" for some models
+  assistant_prefix: "<｜Assistant｜>"
+  thinking_tag: "think"  # Tag used in source responses (e.g., "think", "redacted_reasoning")
+
+# Dataset configuration
+dataset:
+  name: "mmlu"  # Dataset name
+  params:
+    subject: "marketing"
+  random_sample: 10  # Randomly sample N problems from dataset (null to use all)
+  random_seed: 42  # Random seed for reproducibility
+
+# Prompt formatting
+prompt:
+  template: "mmlu_multiple_choice_sandbag"  # Template name from PROMPT_TEMPLATES in src/prompt_formatter.py
+  field_name: "question"  # Field name to extract from dataset
+  # custom_template: null  # Optional: custom template string with {} placeholder
+
+# Experiment configuration
+experiment:
+  # Path to directory containing source generated responses
+  # Files should be named prompt_0000.json, prompt_0001.json, etc.
+  # Each file should contain responses with thinking traces that can be extracted
+  source_responses_dir: "experiments/results/deepseek-r1/mmlu/samples"
+
+  # Mode for thinking tag:
+  # - false (open): Leave thinking tag open, model can continue generating thinking after substituted CoT
+  # - true (closed): Close thinking tag, model generates only the final answer after substituted CoT
+  close_thinking_tag: true
+
+  # Batch size for parallel processing (number of concurrent API calls)
+  # Set to 1 for sequential processing, higher values for parallel processing
+  batch_size: 10
+
+  # Output directory for results
+  output_dir: "experiments/results/deepseek-r1/mmlu/cot_substitution_sandbag"

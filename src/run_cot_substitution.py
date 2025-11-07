@@ -1,5 +1,6 @@
-# ABOUTME: Main script for prefill experiment
-# ABOUTME: Loads prompts from dataset, prefills CoT reasoning, and completes with OpenRouter completions API
+# ABOUTME: Main script for CoT substitution experiment
+# ABOUTME: Loads prompts from dataset, extracts CoT from existing generated responses,
+# ABOUTME: and uses them as prefill for inference on the same prompts
 
 import asyncio
 import json
@@ -17,7 +18,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 from dataset_loaders import get_dataset
 from openrouter_completions_client import OpenRouterCompletionsClient
 from prompt_formatter import PromptFormatter
-from thinking_trace_utils import build_prefill_prompt
+from thinking_trace_utils import (
+    build_completion_prompt,
+    build_prefill_prompt,
+    extract_thinking_trace,
+)
 
 
 def load_config(config_path: str) -> dict:
@@ -49,6 +54,69 @@ def create_formatter(config: dict):
     )
 
 
+def load_source_response(source_dir: Path, prompt_idx: int) -> dict | None:
+    """Load source response file for a given prompt index.
+
+    Args:
+        source_dir: Directory containing source response files
+        prompt_idx: Index of the prompt
+
+    Returns:
+        Response data dict, or None if file not found
+    """
+    source_file = source_dir / f"prompt_{prompt_idx:04d}.json"
+    if not source_file.exists():
+        return None
+
+    with open(source_file, "r") as f:
+        return json.load(f)
+
+
+def extract_cot_from_source_response(
+    source_data: dict, thinking_tag: str = "think"
+) -> str | None:
+    """Extract CoT (thinking trace) from source response data.
+
+    Args:
+        source_data: Source response data dict
+        thinking_tag: Tag name used to wrap thinking (e.g., "think", "redacted_reasoning")
+
+    Returns:
+        Thinking trace content without tags, or None if not found
+    """
+    # Try to extract from responses array (sampling format)
+    responses = source_data.get("responses", [])
+    if responses:
+        for response in responses:
+            if response.get("success", False):
+                content = response.get("content", "")
+                if content:
+                    cot = extract_thinking_trace(content, thinking_tag)
+                    if cot is not None:
+                        return cot
+
+    # Try to extract from full_reconstructed_response (prefill format)
+    full_response = source_data.get("full_reconstructed_response", "")
+    if full_response:
+        cot = extract_thinking_trace(full_response, thinking_tag)
+        if cot is not None:
+            return cot
+
+    # Try to extract from completion.reasoning (if present)
+    completion = source_data.get("completion", {})
+    reasoning = completion.get("reasoning", "")
+    if reasoning:
+        # Reasoning might already be extracted, or might have tags
+        cot = extract_thinking_trace(reasoning, thinking_tag)
+        if cot is not None:
+            return cot
+        # If no tags, assume it's already the thinking trace
+        if reasoning.strip():
+            return reasoning.strip()
+
+    return None
+
+
 async def process_single_prompt_async(
     client: OpenRouterCompletionsClient,
     prompt_idx: int,
@@ -57,8 +125,9 @@ async def process_single_prompt_async(
     output_dir: Path,
     config: dict,
     total_prompts: int,
+    source_dir: Path,
 ) -> dict:
-    """Process a single prompt with prefill and generate completion (async).
+    """Process a single prompt with CoT substitution and generate completion (async).
 
     Args:
         client: OpenRouter completions client
@@ -68,6 +137,7 @@ async def process_single_prompt_async(
         output_dir: Directory to save results
         config: Full experiment config
         total_prompts: Total number of prompts (for progress display)
+        source_dir: Directory containing source response files
 
     Returns:
         Dict with result data
@@ -84,32 +154,61 @@ async def process_single_prompt_async(
     # Extract configuration
     exp_config = config["experiment"]
     fmt_config = config["prompt_formatting"]
+    thinking_tag = fmt_config.get("thinking_tag", "think")
 
     # Get user message from prompt
     user_message = prompt[0]["content"] if prompt else ""
 
-    # Get prefill text
-    prefill = exp_config.get("prefill", "")
-    if not prefill:
+    # Load source response and extract CoT
+    source_data = load_source_response(source_dir, prompt_idx)
+    if source_data is None:
         return {
             "prompt_index": prompt_idx,
             "success": False,
-            "error": "No prefill text specified in config",
+            "error": f"Source response file not found: prompt_{prompt_idx:04d}.json",
         }
 
-    # Build prefill prompt
-    completion_prompt = build_prefill_prompt(
-        prefix_tokens=fmt_config.get("prefix_tokens", ""),
-        user_message=user_message,
-        postfix_tokens=fmt_config.get("postfix_tokens", ""),
-        assistant_prefix=fmt_config.get("assistant_prefix", ""),
-        thinking_tag=fmt_config.get("thinking_tag", "think"),
-        prefill=prefill,
-    )
+    # Extract CoT from source response
+    cot_prefill = extract_cot_from_source_response(source_data, thinking_tag)
+    if cot_prefill is None:
+        return {
+            "prompt_index": prompt_idx,
+            "success": False,
+            "error": f"Could not extract CoT from source response (looking for <{thinking_tag}> tags)",
+        }
+
+    # Check if we should close the thinking tag or leave it open
+    close_thinking_tag = exp_config.get("close_thinking_tag", False)
+
+    # Build prompt based on mode
+    if close_thinking_tag:
+        # Closed mode: use build_completion_prompt to close the tag
+        # Model will generate only the final answer after </thinking_tag>
+        completion_prompt = build_completion_prompt(
+            prefix_tokens=fmt_config.get("prefix_tokens", ""),
+            user_message=user_message,
+            postfix_tokens=fmt_config.get("postfix_tokens", ""),
+            assistant_prefix=fmt_config.get("assistant_prefix", ""),
+            thinking_tag=thinking_tag,
+            full_thinking=cot_prefill,
+            close_thinking_tag=True,
+        )
+    else:
+        # Open mode: use build_prefill_prompt to leave tag open
+        # Model can continue generating thinking after the substituted CoT
+        completion_prompt = build_prefill_prompt(
+            prefix_tokens=fmt_config.get("prefix_tokens", ""),
+            user_message=user_message,
+            postfix_tokens=fmt_config.get("postfix_tokens", ""),
+            assistant_prefix=fmt_config.get("assistant_prefix", ""),
+            thinking_tag=thinking_tag,
+            prefill=cot_prefill,
+        )
 
     # Generate completion
+    mode_str = "closed" if close_thinking_tag else "open"
     print(
-        f"Prompt {prompt_idx:04d}/{total_prompts:04d}: Generating completion with prefill..."
+        f"Prompt {prompt_idx:04d}/{total_prompts:04d}: Generating completion with substituted CoT ({mode_str} mode)..."
     )
     # Use async method directly since we're already in an async context
     completion_result = await client._complete_async(completion_prompt)
@@ -148,7 +247,9 @@ async def process_single_prompt_async(
         "prompt_index": prompt_idx,
         "problem": problem,
         "prompt": prompt,
-        "prefill": prefill,
+        "source_response_file": f"prompt_{prompt_idx:04d}.json",
+        "substituted_cot": cot_prefill,
+        "close_thinking_tag_mode": close_thinking_tag,
         "prompt_sent_to_api": completion_prompt,
         "completion": completion_summary,
         "full_reconstructed_response": full_reconstructed_response,
@@ -170,7 +271,7 @@ async def process_single_prompt_async(
     return result_data
 
 
-async def run_prefill_async_with_indices(
+async def run_cot_substitution_async_with_indices(
     client: OpenRouterCompletionsClient,
     prompts: list[list[dict[str, str]]],
     problems: list[dict],
@@ -178,8 +279,9 @@ async def run_prefill_async_with_indices(
     output_dir: Path,
     config: dict,
     total_prompts: int,
+    source_dir: Path,
 ) -> list[dict]:
-    """Run prefill experiment asynchronously with parallel batch processing.
+    """Run CoT substitution experiment asynchronously with parallel batch processing.
 
     Args:
         client: OpenRouter completions client
@@ -189,6 +291,7 @@ async def run_prefill_async_with_indices(
         output_dir: Directory to save results
         config: Full experiment config
         total_prompts: Total number of prompts (including existing ones, for progress display)
+        source_dir: Directory containing source response files
 
     Returns:
         List of result dicts
@@ -212,6 +315,7 @@ async def run_prefill_async_with_indices(
                     output_dir,
                     config,
                     total_prompts,
+                    source_dir,
                 )
 
         # Create all tasks with original indices
@@ -229,15 +333,24 @@ async def run_prefill_async_with_indices(
         results = []
         for original_idx, prompt, problem in zip(original_indices, prompts, problems):
             result = await process_single_prompt_async(
-                client, original_idx, prompt, problem, output_dir, config, total_prompts
+                client,
+                original_idx,
+                prompt,
+                problem,
+                output_dir,
+                config,
+                total_prompts,
+                source_dir,
             )
             results.append(result)
 
     return results
 
 
-def run_prefill(config_path: str = "experiments/configs/prefill_experiment.yaml"):
-    """Run prefill experiment from config file.
+def run_cot_substitution(
+    config_path: str = "experiments/configs/cot_substitution.yaml",
+):
+    """Run CoT substitution experiment from config file.
 
     Args:
         config_path: Path to YAML configuration file
@@ -302,17 +415,13 @@ def run_prefill(config_path: str = "experiments/configs/prefill_experiment.yaml"
     if openrouter_config.get("providers"):
         print(f"Providers: {openrouter_config['providers']}")
 
-    # Get prefill text and batch size
+    # Get source directory and batch size
     exp_config = config["experiment"]
-    prefill = exp_config.get("prefill", "")
-    if not prefill:
-        raise ValueError("Must specify 'prefill' in experiment config")
+    source_dir = Path(exp_config["source_responses_dir"])
+    if not source_dir.exists():
+        raise ValueError(f"Source responses directory does not exist: {source_dir}")
     batch_size = exp_config.get("batch_size", 10)
-    print(
-        f"\nPrefill text: {prefill[:100]}..."
-        if len(prefill) > 100
-        else f"\nPrefill text: {prefill}"
-    )
+    print(f"\nSource responses directory: {source_dir}")
     print(f"Batch size: {batch_size} (processing prompts in parallel)")
 
     # Setup output directory
@@ -366,7 +475,7 @@ def run_prefill(config_path: str = "experiments/configs/prefill_experiment.yaml"
     # Run async experiment only if there are prompts to process
     if prompts_to_process:
         results = asyncio.run(
-            run_prefill_async_with_indices(
+            run_cot_substitution_async_with_indices(
                 client,
                 prompts_to_process,
                 problems_to_process,
@@ -374,6 +483,7 @@ def run_prefill(config_path: str = "experiments/configs/prefill_experiment.yaml"
                 output_dir,
                 config,
                 len(prompts),
+                source_dir,
             )
         )
     else:
@@ -386,7 +496,7 @@ def run_prefill(config_path: str = "experiments/configs/prefill_experiment.yaml"
     total_target = len(prompts)
 
     print(f"\n{'=' * 80}")
-    print("PREFILL EXPERIMENT COMPLETE")
+    print("COT SUBSTITUTION EXPERIMENT COMPLETE")
     print("=" * 80)
     print(f"Target prompts: {total_target}")
     print(f"  - Already existed: {total_existing}")
@@ -407,8 +517,13 @@ def run_prefill(config_path: str = "experiments/configs/prefill_experiment.yaml"
         print(f"{'=' * 80}")
         print("\nProblem:")
         print(problems[0].get("problem") or problems[0].get("question", ""))
-        print("\nPrefill:")
-        print(exp_config.get("prefill", "")[:200] + "...")
+        print("\nSubstituted CoT (first 200 chars):")
+        substituted_cot = results[0].get("substituted_cot", "")
+        print(
+            substituted_cot[:200] + "..."
+            if len(substituted_cot) > 200
+            else substituted_cot
+        )
         print("\nGenerated completion:")
         completion = results[0].get("completion", {})
         generated_text = completion.get("text", "")[:500]
@@ -417,4 +532,4 @@ def run_prefill(config_path: str = "experiments/configs/prefill_experiment.yaml"
 
 
 if __name__ == "__main__":
-    fire.Fire(run_prefill)
+    fire.Fire(run_cot_substitution)

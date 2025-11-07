@@ -82,10 +82,15 @@ async def sample_and_save_prompt(
         successful = sum(1 for r in responses if r.get("success", False))
         total = len(responses)
 
-        return {"successful": successful, "total": total, "responses": responses, "skipped": True}
+        return {
+            "successful": successful,
+            "total": total,
+            "responses": responses,
+            "skipped": True,
+        }
 
     # Sample responses for this prompt (use async method if available)
-    if hasattr(client, 'sample_prompt_async'):
+    if hasattr(client, "sample_prompt_async"):
         responses = await client.sample_prompt_async(prompt)
     else:
         # Fallback to sync method in thread pool
@@ -111,7 +116,12 @@ async def sample_and_save_prompt(
         f"Prompt {prompt_idx:04d}/{total_prompts:04d}: {successful}/{total} responses saved"
     )
 
-    return {"successful": successful, "total": total, "responses": responses, "skipped": False}
+    return {
+        "successful": successful,
+        "total": total,
+        "responses": responses,
+        "skipped": False,
+    }
 
 
 async def run_sampling_async(
@@ -206,9 +216,7 @@ def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
             random_seed = dataset_config.get("random_seed", 42)
             random.seed(random_seed)
             problems = random.sample(problems, random_sample)
-            print(
-                f"Randomly sampled {len(problems)} problems (seed={random_seed})"
-            )
+            print(f"Randomly sampled {len(problems)} problems (seed={random_seed})")
 
     # Create prompt formatter
     prompt_config = config["prompt"]
@@ -254,7 +262,7 @@ def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
 
     # Setup output directory
     output_config = config["output"]
-    output_dir = Path(output_config["save_dir"]) / dataset_name
+    output_dir = Path(output_config["save_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"\nSaving results to: {output_dir}/")
 

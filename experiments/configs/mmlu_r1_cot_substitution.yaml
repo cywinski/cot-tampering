@@ -36,7 +36,7 @@ dataset:
 
 # Prompt formatting
 prompt:
-  template: "mmlu_multiple_choice_sandbag"  # Template name from PROMPT_TEMPLATES in src/prompt_formatter.py
+  template: "mmlu_multiple_choice_other_model_cot_substitution"  # Template name from PROMPT_TEMPLATES in src/prompt_formatter.py
   field_name: "question"  # Field name to extract from dataset
   # custom_template: null  # Optional: custom template string with {} placeholder
 
@@ -45,7 +45,7 @@ experiment:
   # Path to directory containing source generated responses
   # Files should be named prompt_0000.json, prompt_0001.json, etc.
   # Each file should contain responses with thinking traces that can be extracted
-  source_responses_dir: "experiments/results/deepseek-r1/mmlu/samples"
+  source_responses_dir: "experiments/results/deepseek-r1/mmlu_marketing/samples/base"
 
   # Mode for thinking tag:
   # - false (open): Leave thinking tag open, model can continue generating thinking after substituted CoT
@@ -57,4 +57,4 @@ experiment:
   batch_size: 10
 
   # Output directory for results
-  output_dir: "experiments/results/deepseek-r1/mmlu/cot_substitution_sandbag"
+  output_dir: "experiments/results/deepseek-r1/mmlu_marketing/other_model_cot_substitution/deepseek-r1"

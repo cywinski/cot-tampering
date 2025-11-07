@@ -12,8 +12,8 @@ headers = {
 }
 
 payload = {
-    "model": "deepseek/deepseek-r1",
-    "prompt": "<｜begin▁of▁sentence｜><｜User｜>What is 2+2?<｜Assistant｜><think>\nI'll",
+    "model": "qwen/qwen3-235b-a22b-thinking-2507",
+    "prompt": "<|im_start|>user\nWhat is 2+2?<|im_end|>\n<|im_start|>assistant\n<think>\nI'll",
     "temperature": 0.6,
     "top_p": 1,
     "max_tokens": 10000,
@@ -24,5 +24,4 @@ payload = {
 }
 
 response = requests.post(api_url, json=payload, headers=headers)
-# %%
 print(response.json())

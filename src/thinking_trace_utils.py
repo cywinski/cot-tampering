@@ -76,6 +76,7 @@ def insert_text_in_thinking(
 def build_completion_prompt(
     prefix_tokens: str,
     user_message: str,
+    postfix_tokens: str,
     assistant_prefix: str,
     thinking_tag: str,
     full_thinking: str,
@@ -86,6 +87,7 @@ def build_completion_prompt(
     Args:
         prefix_tokens: Tokens at the start (e.g., "<｜begin▁of▁sentence｜>")
         user_message: User's message content
+        postfix_tokens: Tokens at the end (e.g., "<|im_end|>\n")
         assistant_prefix: Assistant start tokens (e.g., "<｜Assistant｜>")
         thinking_tag: Tag name for thinking (e.g., "think")
         full_thinking: Complete thinking trace content (can be empty string for 100% removal)
@@ -99,14 +101,44 @@ def build_completion_prompt(
         # Closed tag: model generates only the final answer after </think>
         # Handle empty thinking (100% removal case)
         if full_thinking.strip():
-            prompt = f"{prefix_tokens}{user_message}{assistant_prefix}<{thinking_tag}>\n{full_thinking}\n</{thinking_tag}>\n"
+            prompt = f"{prefix_tokens}{user_message}{postfix_tokens}{assistant_prefix}<{thinking_tag}>\n{full_thinking}\n</{thinking_tag}>\n"
         else:
             # Empty thinking: just tags with no content
-            prompt = f"{prefix_tokens}{user_message}{assistant_prefix}<{thinking_tag}>\n</{thinking_tag}>\n"
+            prompt = f"{prefix_tokens}{user_message}{postfix_tokens}{assistant_prefix}<{thinking_tag}>\n</{thinking_tag}>\n"
     else:
         # Open tag: model can continue extending the thinking trace
-        prompt = f"{prefix_tokens}{user_message}{assistant_prefix}<{thinking_tag}>\n{full_thinking}"
+        prompt = f"{prefix_tokens}{user_message}{postfix_tokens}{assistant_prefix}<{thinking_tag}>\n{full_thinking}"
 
+    return prompt
+
+
+def build_prefill_prompt(
+    prefix_tokens: str,
+    user_message: str,
+    postfix_tokens: str,
+    assistant_prefix: str,
+    thinking_tag: str,
+    prefill: str,
+) -> str:
+    """Build a completion prompt with prefill text in the thinking trace.
+
+    The prompt format is: {prompt}<{thinking_tag}>{prefill}
+    The model will complete the rest of the thinking trace.
+
+    Args:
+        prefix_tokens: Tokens at the start (e.g., "<｜begin▁of▁sentence｜>")
+        user_message: User's message content
+        postfix_tokens: Tokens at the end (e.g., "<|im_end|>\n")
+        assistant_prefix: Assistant start tokens (e.g., "<｜Assistant｜>")
+        thinking_tag: Tag name for thinking (e.g., "think")
+        prefill: Text to prefill in the thinking trace (model will complete after this)
+
+    Returns:
+        Formatted prompt string for completions API with prefill
+    """
+    # Format: {prefix_tokens}{user_message}{postfix_tokens}{assistant_prefix}<{thinking_tag}>\n{prefill}
+    # The tag is left open so the model can complete it
+    prompt = f"{prefix_tokens}{user_message}{postfix_tokens}{assistant_prefix}<{thinking_tag}>\n{prefill}"
     return prompt
 
 
@@ -221,7 +253,7 @@ def remove_random_sentences(
 
     # Split into sentences using regex (matches . ! ? followed by space/newline or end of string)
     # This preserves sentence boundaries
-    sentence_pattern = r'(?<=[.!?])\s+|\n+|$'
+    sentence_pattern = r"(?<=[.!?])\s+|\n+|$"
     parts = re.split(sentence_pattern, thinking_trace)
 
     # Filter out empty strings and reconstruct sentences with their terminators
@@ -247,7 +279,9 @@ def remove_random_sentences(
 
     # Apply sentence filter if provided to get candidate sentences
     if sentence_filter is not None:
-        candidate_indices = [i for i, sent in enumerate(sentences) if sentence_filter(sent)]
+        candidate_indices = [
+            i for i, sent in enumerate(sentences) if sentence_filter(sent)
+        ]
     else:
         candidate_indices = list(range(original_sentence_count))
 
@@ -278,19 +312,19 @@ def remove_random_sentences(
         return "", [], n_sentences_to_remove
 
     # Select random sentence indices to remove from candidates
-    indices_to_remove = set(
-        random.sample(candidate_indices, n_sentences_to_remove)
-    )
+    indices_to_remove = set(random.sample(candidate_indices, n_sentences_to_remove))
 
     # Track character positions of removed sentences
     removed_positions = [sentence_positions[i] for i in sorted(indices_to_remove)]
 
     # Reconstruct thinking trace without removed sentences
-    kept_sentences = [sent for i, sent in enumerate(sentences) if i not in indices_to_remove]
+    kept_sentences = [
+        sent for i, sent in enumerate(sentences) if i not in indices_to_remove
+    ]
 
     # Join sentences with appropriate spacing
     if kept_sentences:
-        modified_thinking = ' '.join(kept_sentences)
+        modified_thinking = " ".join(kept_sentences)
     else:
         modified_thinking = ""
 
@@ -315,5 +349,5 @@ def extract_completion_after_insertion(
     # Remove the prefix that was in the prompt
     prefix = original_thinking_before + insertion_text
     if completed_text.startswith(prefix):
-        return completed_text[len(prefix):]
+        return completed_text[len(prefix) :]
     return completed_text

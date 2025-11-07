@@ -104,11 +104,13 @@ def process_single_response(
         deterministic_seed = seed
 
     try:
-        modified_thinking, removed_positions, n_sentences_removed = remove_random_sentences(
-            thinking_trace,
-            n_sentences=n_sentences,
-            percentage=percentage,
-            seed=deterministic_seed,
+        modified_thinking, removed_positions, n_sentences_removed = (
+            remove_random_sentences(
+                thinking_trace,
+                n_sentences=n_sentences,
+                percentage=percentage,
+                seed=deterministic_seed,
+            )
         )
     except ValueError as e:
         return {
@@ -123,6 +125,7 @@ def process_single_response(
     completion_prompt = build_completion_prompt(
         prefix_tokens=fmt_config["prefix_tokens"],
         user_message=user_message,
+        postfix_tokens=fmt_config["postfix_tokens"],
         assistant_prefix=fmt_config["assistant_prefix"],
         thinking_tag=thinking_tag,
         full_thinking=modified_thinking,
@@ -131,7 +134,7 @@ def process_single_response(
 
     # Generate completion
     # Count sentences for logging using the same method as remove_random_sentences
-    sentence_pattern = r'(?<=[.!?])\s+|\n+|$'
+    sentence_pattern = r"(?<=[.!?])\s+|\n+|$"
     parts = [p.strip() for p in re.split(sentence_pattern, thinking_trace) if p.strip()]
     original_sentence_count = len(parts)
     percentage_removed = (
@@ -163,7 +166,11 @@ def process_single_response(
 
     # Build result
     # Count modified sentences using the same method
-    modified_parts = [p.strip() for p in re.split(sentence_pattern, modified_thinking) if p.strip()] if modified_thinking else []
+    modified_parts = (
+        [p.strip() for p in re.split(sentence_pattern, modified_thinking) if p.strip()]
+        if modified_thinking
+        else []
+    )
     modified_sentence_count = len(modified_parts)
 
     return {
@@ -248,7 +255,9 @@ def run_sentence_removal(
             f"Removing {exp_config['percentage_to_remove'] * 100:.1f}% of sentences per trace"
         )
     else:
-        print("ERROR: Must specify either n_sentences_to_remove or percentage_to_remove")
+        print(
+            "ERROR: Must specify either n_sentences_to_remove or percentage_to_remove"
+        )
 
     # Process each file
     all_results = []

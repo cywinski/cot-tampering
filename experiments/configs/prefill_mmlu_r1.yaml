@@ -1,0 +1,49 @@
+# Configuration for prefill experiment
+# This experiment:
+# 1. Loads prompts from a dataset
+# 2. Formats prompts using a template
+# 3. Prefills the CoT reasoning with specified text
+# 4. Uses OpenRouter completions API to let the model complete the rest of the thinking trace
+# The prompt format is: {prompt}<{thinking_tag}>{prefill} and the model completes it
+
+# Model configuration
+model:
+  name: "deepseek/deepseek-r1"
+  temperature: 0.6
+  max_tokens: 16384
+  top_p: 0.95
+  timeout: 120
+
+# OpenRouter configuration
+openrouter:
+  providers: ["DeepInfra"]
+
+# Prompt formatting tokens
+prompt_formatting:
+  prefix_tokens: "<｜begin▁of▁sentence｜><｜User｜>"
+  postfix_tokens: ""  # Optional: e.g., "<|im_end|>\n" for some models
+  assistant_prefix: "<｜Assistant｜>"
+  thinking_tag: "think"
+
+# Dataset configuration
+dataset:
+  name: "mmlu"  # Dataset name
+  params:
+    subject: "marketing"
+  random_sample: 10  # Randomly sample N problems from dataset (null to use all)
+  random_seed: 42  # Random seed for reproducibility
+
+# Prompt formatting
+prompt:
+  template: "mmlu_multiple_choice"  # Template name from PROMPT_TEMPLATES in src/prompt_formatter.py
+  field_name: "question"  # Field name to extract from dataset
+  # custom_template: null  # Optional: custom template string with {} placeholder
+
+# Experiment configuration
+experiment:
+  # Prefill text to insert at the start of the thinking trace
+  # The model will complete the rest of the thinking trace after this prefill
+  prefill: "Okay, how am I"
+
+  # Output directory for results
+  output_dir: "experiments/results/deepseek-r1/mmlu/prefill"

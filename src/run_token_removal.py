@@ -122,6 +122,7 @@ def process_single_response(
     completion_prompt = build_completion_prompt(
         prefix_tokens=fmt_config["prefix_tokens"],
         user_message=user_message,
+        postfix_tokens=fmt_config["postfix_tokens"],
         assistant_prefix=fmt_config["assistant_prefix"],
         thinking_tag=thinking_tag,
         full_thinking=modified_thinking,

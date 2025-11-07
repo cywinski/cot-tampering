@@ -2,13 +2,13 @@
 # This config is used by src/run_assessment.py to evaluate answer correctness
 
 # Directory containing the result JSON files to assess
-dir_base: "experiments/results/deepseek-r1/math500v2/random_sentence_removal_closed/0.9"
+dir_base: "experiments/results/qwen3-235b-a22b-thinking-2507/math500v2/random_sentence_removal_closed/0.99"
 
 # Directory containing the original prompt samples
-samples_base: "experiments/results/deepseek-r1/math500v2/samples/math500"
+samples_base: "experiments/results/qwen3-235b-a22b-thinking-2507/math500v2/samples/math500"
 
 # Output path for the assessment results JSON
-output_path: "experiments/results/deepseek-r1/math500v2/random_sentence_removal_closed/0.9/metrics/assessments.json"
+output_path: "experiments/results/qwen3-235b-a22b-thinking-2507/math500v2/random_sentence_removal_closed/0.99/metrics/assessments.json"
 
 # OpenAI model to use for assessment
 model: "gpt-4.1"

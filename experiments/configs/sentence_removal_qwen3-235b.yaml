@@ -1,0 +1,48 @@
+# Configuration for sentence removal experiment (CLOSED THINKING MODE)
+# This experiment:
+# 1. Loads previously sampled responses with thinking traces
+# 2. Removes N% of random sentences from the thinking trace
+# 3. Closes the </think> tag and prefills it in the prompt
+# 4. Uses OpenRouter completions API to generate only the final answer after </think>
+
+# Model configuration
+model:
+  name: "qwen/qwen3-235b-a22b-thinking-2507"
+  temperature: 0.6
+  max_tokens: 16384
+  top_p: 0.95
+  timeout: 120
+
+# OpenRouter configuration
+openrouter:
+  providers: ["DeepInfra"]
+
+# Prompt formatting tokens
+prompt_formatting:
+  prefix_tokens: "<|im_start|>user\n"
+  postfix_tokens: "<|im_end|>\n"
+  assistant_prefix: "<|im_start|>assistant\n"
+  thinking_tag: "think"
+
+# Experiment configuration
+experiment:
+  # Input: previously sampled responses
+  input_responses_dir: "experiments/results/qwen3-235b-a22b-thinking-2507/math500v2/samples/math500"
+
+  # Which prompts to process
+  start_index: 0
+  end_index: 50  # Process first 10 for testing
+  # Note: ALL responses per prompt will be processed
+
+  # Sentence removal configuration (specify EITHER n_sentences_to_remove OR percentage_to_remove)
+  # n_sentences_to_remove: 5  # Number of random sentences to remove from each trace
+  percentage_to_remove: 0.99 # Percentage of sentences to remove (0.0 = baseline, no removal)
+
+  # Thinking tag mode
+  close_thinking_tag: true  # TRUE = close tag, model generates only answer after </think>
+
+  # Random seed for reproducibility
+  seed: 42
+
+  # Output configuration
+  output_dir: "experiments/results/qwen3-235b-a22b-thinking-2507/math500v2/random_sentence_removal_closed/0.99"

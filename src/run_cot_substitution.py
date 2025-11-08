@@ -10,48 +10,18 @@ import sys
 from pathlib import Path
 
 import fire
-import yaml
 
 # Add src directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from dataset_loaders import get_dataset
-from openrouter_completions_client import OpenRouterCompletionsClient
-from prompt_formatter import PromptFormatter
-from thinking_trace_utils import (
+from sampling import (
+    OpenRouterCompletionsClient,
+    get_dataset,
     build_completion_prompt,
     build_prefill_prompt,
     extract_thinking_trace,
 )
-
-
-def load_config(config_path: str) -> dict:
-    """Load YAML configuration file.
-
-    Args:
-        config_path: Path to YAML config file
-
-    Returns:
-        Config dict
-    """
-    with open(config_path) as f:
-        return yaml.safe_load(f)
-
-
-def create_formatter(config: dict):
-    """Create prompt formatter from config.
-
-    Args:
-        config: Config dict with prompt settings
-
-    Returns:
-        PromptFormatter instance
-    """
-    return PromptFormatter(
-        template_name=config.get("template", "raw"),
-        field_name=config.get("field_name", "problem"),
-        custom_template=config.get("custom_template"),
-    )
+from utils import create_formatter, load_config
 
 
 def load_source_response(source_dir: Path, prompt_idx: int) -> dict | None:
@@ -151,15 +121,16 @@ async def process_single_prompt_async(
             existing_data = json.load(f)
         return {"skipped": True, **existing_data}
 
-    # Extract configuration
     exp_config = config["experiment"]
     fmt_config = config["prompt_formatting"]
     thinking_tag = fmt_config.get("thinking_tag", "think")
+    prefix_user_tokens = fmt_config.get("prefix_user_tokens", "")
+    postfix_user_tokens = fmt_config.get("postfix_user_tokens", "")
+    prefix_assistant_tokens = fmt_config.get("prefix_assistant_tokens", "")
+    close_thinking_tag = exp_config.get("close_thinking_tag", False)
 
-    # Get user message from prompt
     user_message = prompt[0]["content"] if prompt else ""
 
-    # Load source response and extract CoT
     source_data = load_source_response(source_dir, prompt_idx)
     if source_data is None:
         return {
@@ -168,7 +139,6 @@ async def process_single_prompt_async(
             "error": f"Source response file not found: prompt_{prompt_idx:04d}.json",
         }
 
-    # Extract CoT from source response
     cot_prefill = extract_cot_from_source_response(source_data, thinking_tag)
     if cot_prefill is None:
         return {
@@ -177,30 +147,22 @@ async def process_single_prompt_async(
             "error": f"Could not extract CoT from source response (looking for <{thinking_tag}> tags)",
         }
 
-    # Check if we should close the thinking tag or leave it open
-    close_thinking_tag = exp_config.get("close_thinking_tag", False)
-
-    # Build prompt based on mode
     if close_thinking_tag:
-        # Closed mode: use build_completion_prompt to close the tag
-        # Model will generate only the final answer after </thinking_tag>
         completion_prompt = build_completion_prompt(
-            prefix_tokens=fmt_config.get("prefix_tokens", ""),
+            prefix_user_tokens=prefix_user_tokens,
             user_message=user_message,
-            postfix_tokens=fmt_config.get("postfix_tokens", ""),
-            assistant_prefix=fmt_config.get("assistant_prefix", ""),
+            postfix_user_tokens=postfix_user_tokens,
+            prefix_assistant_tokens=prefix_assistant_tokens,
             thinking_tag=thinking_tag,
             full_thinking=cot_prefill,
             close_thinking_tag=True,
         )
     else:
-        # Open mode: use build_prefill_prompt to leave tag open
-        # Model can continue generating thinking after the substituted CoT
         completion_prompt = build_prefill_prompt(
-            prefix_tokens=fmt_config.get("prefix_tokens", ""),
+            prefix_user_tokens=prefix_user_tokens,
             user_message=user_message,
-            postfix_tokens=fmt_config.get("postfix_tokens", ""),
-            assistant_prefix=fmt_config.get("assistant_prefix", ""),
+            postfix_user_tokens=postfix_user_tokens,
+            prefix_assistant_tokens=prefix_assistant_tokens,
             thinking_tag=thinking_tag,
             prefill=cot_prefill,
         )

@@ -5,8 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path.cwd().parent / "src"))
 
-from dataset_loaders import load_mmlu
-from prompt_formatter import PromptFormatter
+from sampling import load_mmlu, PromptFormatter
 
 # %%
 # Load a sample from MMLU

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import random
 import re
+from typing import Callable
 from typing import Literal
 
 
@@ -74,10 +75,10 @@ def insert_text_in_thinking(
 
 
 def build_completion_prompt(
-    prefix_tokens: str,
+    prefix_user_tokens: str,
     user_message: str,
-    postfix_tokens: str,
-    assistant_prefix: str,
+    postfix_user_tokens: str,
+    prefix_assistant_tokens: str,
     thinking_tag: str,
     full_thinking: str,
     close_thinking_tag: bool = True,
@@ -85,60 +86,56 @@ def build_completion_prompt(
     """Build a completion prompt with thinking trace.
 
     Args:
-        prefix_tokens: Tokens at the start (e.g., "<｜begin▁of▁sentence｜>")
+        prefix_user_tokens: Tokens before user message
         user_message: User's message content
-        postfix_tokens: Tokens at the end (e.g., "<|im_end|>\n")
-        assistant_prefix: Assistant start tokens (e.g., "<｜Assistant｜>")
+        postfix_user_tokens: Tokens after user message
+        prefix_assistant_tokens: Tokens before assistant response
         thinking_tag: Tag name for thinking (e.g., "think")
         full_thinking: Complete thinking trace content (can be empty string for 100% removal)
-        close_thinking_tag: If True, close </think> tag (model generates only answer).
+        close_thinking_tag: If True, close </thinking_tag> tag (model generates only answer).
                            If False, leave tag open (model can continue thinking).
 
     Returns:
         Formatted prompt string for completions API
     """
+    thinking_token = f"<{thinking_tag}>"
     if close_thinking_tag:
-        # Closed tag: model generates only the final answer after </think>
-        # Handle empty thinking (100% removal case)
         if full_thinking.strip():
-            prompt = f"{prefix_tokens}{user_message}{postfix_tokens}{assistant_prefix}<{thinking_tag}>\n{full_thinking}\n</{thinking_tag}>\n"
+            prompt = f"{prefix_user_tokens}{user_message}{postfix_user_tokens}{prefix_assistant_tokens}{thinking_token}\n{full_thinking}\n</{thinking_tag}>\n"
         else:
-            # Empty thinking: just tags with no content
-            prompt = f"{prefix_tokens}{user_message}{postfix_tokens}{assistant_prefix}<{thinking_tag}>\n</{thinking_tag}>\n"
+            prompt = f"{prefix_user_tokens}{user_message}{postfix_user_tokens}{prefix_assistant_tokens}{thinking_token}\n</{thinking_tag}>\n"
     else:
-        # Open tag: model can continue extending the thinking trace
-        prompt = f"{prefix_tokens}{user_message}{postfix_tokens}{assistant_prefix}<{thinking_tag}>\n{full_thinking}"
+        prompt = f"{prefix_user_tokens}{user_message}{postfix_user_tokens}{prefix_assistant_tokens}{thinking_token}\n{full_thinking}"
 
     return prompt
 
 
 def build_prefill_prompt(
-    prefix_tokens: str,
+    prefix_user_tokens: str,
     user_message: str,
-    postfix_tokens: str,
-    assistant_prefix: str,
+    postfix_user_tokens: str,
+    prefix_assistant_tokens: str,
     thinking_tag: str,
     prefill: str,
 ) -> str:
     """Build a completion prompt with prefill text in the thinking trace.
 
-    The prompt format is: {prompt}<{thinking_tag}>{prefill}
+    The prompt format is: {prefix_user_tokens}{user_message}{postfix_user_tokens}{prefix_assistant_tokens}<{thinking_tag}>\n{prefill}
     The model will complete the rest of the thinking trace.
 
     Args:
-        prefix_tokens: Tokens at the start (e.g., "<｜begin▁of▁sentence｜>")
+        prefix_user_tokens: Tokens before user message
         user_message: User's message content
-        postfix_tokens: Tokens at the end (e.g., "<|im_end|>\n")
-        assistant_prefix: Assistant start tokens (e.g., "<｜Assistant｜>")
+        postfix_user_tokens: Tokens after user message
+        prefix_assistant_tokens: Tokens before assistant response
         thinking_tag: Tag name for thinking (e.g., "think")
         prefill: Text to prefill in the thinking trace (model will complete after this)
 
     Returns:
         Formatted prompt string for completions API with prefill
     """
-    # Format: {prefix_tokens}{user_message}{postfix_tokens}{assistant_prefix}<{thinking_tag}>\n{prefill}
-    # The tag is left open so the model can complete it
-    prompt = f"{prefix_tokens}{user_message}{postfix_tokens}{assistant_prefix}<{thinking_tag}>\n{prefill}"
+    thinking_token = f"<{thinking_tag}>"
+    prompt = f"{prefix_user_tokens}{user_message}{postfix_user_tokens}{prefix_assistant_tokens}{thinking_token}\n{prefill}"
     return prompt
 
 
@@ -184,6 +181,7 @@ def remove_random_tokens(
         if percentage > 0 and n_tokens_to_remove == 0:
             n_tokens_to_remove = 1
     else:
+        assert n_tokens is not None
         n_tokens_to_remove = n_tokens
 
     # Allow removing all tokens (100%)
@@ -224,7 +222,7 @@ def remove_random_sentences(
     n_sentences: int | None = None,
     percentage: float | None = None,
     seed: int | None = None,
-    sentence_filter: callable | None = None,
+    sentence_filter: Callable[[str], bool] | None = None,
 ) -> tuple[str, list[int], int]:
     """Remove random sentences from thinking trace (excluding thinking tags).
 
@@ -299,6 +297,7 @@ def remove_random_sentences(
         if percentage > 0 and n_sentences_to_remove == 0:
             n_sentences_to_remove = 1
     else:
+        assert n_sentences is not None
         n_sentences_to_remove = n_sentences
 
     # Validate removal count

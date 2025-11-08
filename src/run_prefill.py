@@ -2,238 +2,26 @@
 # ABOUTME: Loads prompts from dataset, prefills CoT reasoning, and completes with OpenRouter completions API
 
 import asyncio
-import json
 import random
 import re
 import sys
 from pathlib import Path
 
 import fire
-import yaml
 
 # Add src directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from dataset_loaders import get_dataset
-from openrouter_completions_client import OpenRouterCompletionsClient
-from prompt_formatter import PromptFormatter
-from thinking_trace_utils import build_prefill_prompt
-
-
-def load_config(config_path: str) -> dict:
-    """Load YAML configuration file.
-
-    Args:
-        config_path: Path to YAML config file
-
-    Returns:
-        Config dict
-    """
-    with open(config_path) as f:
-        return yaml.safe_load(f)
-
-
-def create_formatter(config: dict):
-    """Create prompt formatter from config.
-
-    Args:
-        config: Config dict with prompt settings
-
-    Returns:
-        PromptFormatter instance
-    """
-    return PromptFormatter(
-        template_name=config.get("template", "raw"),
-        field_name=config.get("field_name", "problem"),
-        custom_template=config.get("custom_template"),
-    )
-
-
-async def process_single_prompt_async(
-    client: OpenRouterCompletionsClient,
-    prompt_idx: int,
-    prompt: list[dict[str, str]],
-    problem: dict,
-    output_dir: Path,
-    config: dict,
-    total_prompts: int,
-) -> dict:
-    """Process a single prompt with prefill and generate completion (async).
-
-    Args:
-        client: OpenRouter completions client
-        prompt_idx: Index of the prompt (for filename)
-        prompt: Formatted prompt messages
-        problem: Original problem dict
-        output_dir: Directory to save results
-        config: Full experiment config
-        total_prompts: Total number of prompts (for progress display)
-
-    Returns:
-        Dict with result data
-    """
-    output_file = output_dir / f"prompt_{prompt_idx:04d}.json"
-
-    # Check if file already exists
-    if output_file.exists():
-        print(f"Prompt {prompt_idx:04d}/{total_prompts:04d}: already exists, skipping")
-        with open(output_file, "r") as f:
-            existing_data = json.load(f)
-        return {"skipped": True, **existing_data}
-
-    # Extract configuration
-    exp_config = config["experiment"]
-    fmt_config = config["prompt_formatting"]
-
-    # Get user message from prompt
-    user_message = prompt[0]["content"] if prompt else ""
-
-    # Get prefill text
-    prefill = exp_config.get("prefill", "")
-    if not prefill:
-        return {
-            "prompt_index": prompt_idx,
-            "success": False,
-            "error": "No prefill text specified in config",
-        }
-
-    # Build prefill prompt
-    completion_prompt = build_prefill_prompt(
-        prefix_tokens=fmt_config.get("prefix_tokens", ""),
-        user_message=user_message,
-        postfix_tokens=fmt_config.get("postfix_tokens", ""),
-        assistant_prefix=fmt_config.get("assistant_prefix", ""),
-        thinking_tag=fmt_config.get("thinking_tag", "think"),
-        prefill=prefill,
-    )
-
-    # Generate completion
-    print(
-        f"Prompt {prompt_idx:04d}/{total_prompts:04d}: Generating completion with prefill..."
-    )
-    # Use async method directly since we're already in an async context
-    completion_result = await client._complete_async(completion_prompt)
-
-    # Analyze the completion
-    generated_text = completion_result.get("text", "")
-    reasoning_content = completion_result.get("reasoning", "")
-    completion_tokens = completion_result.get("usage", {}).get("completion_tokens", 0)
-
-    # For reasoning models, reasoning might be in separate field
-    # Combine reasoning + text to get full generated content
-    if reasoning_content:
-        full_generated = reasoning_content + generated_text
-    else:
-        full_generated = generated_text
-
-    # Reconstruct full response (prompt + completion)
-    full_reconstructed_response = completion_prompt + full_generated
-
-    # Extract only essential completion fields (avoid redundancy)
-    completion_summary = {
-        "text": generated_text,
-        "reasoning": reasoning_content if reasoning_content else None,
-        "finish_reason": completion_result.get("finish_reason"),
-        "usage": completion_result.get("usage", {}),
-        "model": completion_result.get("model"),
-        "success": completion_result.get("success", False),
-    }
-
-    # Add error if present
-    if "error" in completion_result:
-        completion_summary["error"] = completion_result["error"]
-
-    # Build result
-    result_data = {
-        "prompt_index": prompt_idx,
-        "problem": problem,
-        "prompt": prompt,
-        "prefill": prefill,
-        "prompt_sent_to_api": completion_prompt,
-        "completion": completion_summary,
-        "full_reconstructed_response": full_reconstructed_response,
-        "success": completion_result.get("success", False),
-    }
-
-    # Save immediately to individual file
-    with open(output_file, "w") as f:
-        json.dump(result_data, f, indent=2)
-
-    if completion_result.get("success", False):
-        print(
-            f"Prompt {prompt_idx:04d}/{total_prompts:04d}: Success! Generated {completion_tokens} tokens"
-        )
-    else:
-        error_msg = completion_result.get("error", "Unknown error")
-        print(f"Prompt {prompt_idx:04d}/{total_prompts:04d}: Failed - {error_msg}")
-
-    return result_data
-
-
-async def run_prefill_async_with_indices(
-    client: OpenRouterCompletionsClient,
-    prompts: list[list[dict[str, str]]],
-    problems: list[dict],
-    original_indices: list[int],
-    output_dir: Path,
-    config: dict,
-    total_prompts: int,
-) -> list[dict]:
-    """Run prefill experiment asynchronously with parallel batch processing.
-
-    Args:
-        client: OpenRouter completions client
-        prompts: List of formatted prompts to process
-        problems: List of problem dicts to process
-        original_indices: Original indices for file naming (may not be sequential)
-        output_dir: Directory to save results
-        config: Full experiment config
-        total_prompts: Total number of prompts (including existing ones, for progress display)
-
-    Returns:
-        List of result dicts
-    """
-    exp_config = config["experiment"]
-    batch_size = exp_config.get("batch_size", 10)
-
-    if batch_size > 1:
-        print(f"\nStarting parallel batch processing (batch_size={batch_size})...")
-
-        # Use semaphore to limit concurrent API calls
-        semaphore = asyncio.Semaphore(batch_size)
-
-        async def process_with_semaphore(original_idx, prompt, problem):
-            async with semaphore:
-                return await process_single_prompt_async(
-                    client,
-                    original_idx,
-                    prompt,
-                    problem,
-                    output_dir,
-                    config,
-                    total_prompts,
-                )
-
-        # Create all tasks with original indices
-        tasks = [
-            process_with_semaphore(original_idx, prompt, problem)
-            for original_idx, prompt, problem in zip(
-                original_indices, prompts, problems
-            )
-        ]
-
-        # Execute all tasks concurrently (limited by semaphore)
-        results = await asyncio.gather(*tasks)
-    else:
-        print("\nStarting sequential processing...")
-        results = []
-        for original_idx, prompt, problem in zip(original_indices, prompts, problems):
-            result = await process_single_prompt_async(
-                client, original_idx, prompt, problem, output_dir, config, total_prompts
-            )
-            results.append(result)
-
-    return results
+from sampling import (
+    OpenRouterCompletionsClient,
+    SampleItem,
+    build_prefill_prompt,
+    get_dataset,
+    group_results_by_prompt,
+    sample_batch_async,
+    save_prompt_results,
+)
+from utils import create_formatter, load_config
 
 
 def run_prefill(config_path: str = "experiments/configs/prefill_experiment.yaml"):
@@ -282,8 +70,8 @@ def run_prefill(config_path: str = "experiments/configs/prefill_experiment.yaml"
     template_name = prompt_config.get("template", "raw")
     print(f"Using template: {template_name}")
 
-    # Format prompts
-    prompts = [formatter.format(problem) for problem in problems]
+    prompt_messages = [formatter.format(problem) for problem in problems]
+    user_messages = [msg[0]["content"] if msg else "" for msg in prompt_messages]
 
     # Setup client
     model_config = config["model"]
@@ -302,117 +90,121 @@ def run_prefill(config_path: str = "experiments/configs/prefill_experiment.yaml"
     if openrouter_config.get("providers"):
         print(f"Providers: {openrouter_config['providers']}")
 
-    # Get prefill text and batch size
+    # Get experiment config
     exp_config = config["experiment"]
     prefill = exp_config.get("prefill", "")
     if not prefill:
         raise ValueError("Must specify 'prefill' in experiment config")
+    n_responses = exp_config.get("n_responses", 1)
     batch_size = exp_config.get("batch_size", 10)
     print(
         f"\nPrefill text: {prefill[:100]}..."
         if len(prefill) > 100
         else f"\nPrefill text: {prefill}"
     )
-    print(f"Batch size: {batch_size} (processing prompts in parallel)")
+    print(f"Sampling {n_responses} responses per prompt")
+    print(f"Batch size: {batch_size} (processing in parallel)")
+
+    fmt_config = config["prompt_formatting"]
+    prefix_user_tokens = fmt_config.get("prefix_user_tokens", "")
+    postfix_user_tokens = fmt_config.get("postfix_user_tokens", "")
+    prefix_assistant_tokens = fmt_config.get("prefix_assistant_tokens", "")
+    thinking_tag = fmt_config.get("thinking_tag", "think")
+
+    prefill_prompts = [
+        build_prefill_prompt(
+            prefix_user_tokens=prefix_user_tokens,
+            user_message=user_msg,
+            postfix_user_tokens=postfix_user_tokens,
+            prefix_assistant_tokens=prefix_assistant_tokens,
+            thinking_tag=thinking_tag,
+            prefill=prefill,
+        )
+        for user_msg in user_messages
+    ]
+
+    # Create flat list of sample items (repeat each prompt n_responses times)
+    sample_items: list[SampleItem] = []
+    for prompt_idx, prompt_str in enumerate(prefill_prompts):
+        for response_idx in range(n_responses):
+            sample_items.append(
+                SampleItem(
+                    prompt_str=prompt_str,
+                    prompt_index=prompt_idx,
+                    response_index=response_idx,
+                    metadata={},
+                )
+            )
+
+    print(f"Created {len(sample_items)} sample items")
 
     # Setup output directory
     output_dir = Path(exp_config["output_dir"])
-    output_dir.mkdir(parents=True, exist_ok=True)
     print(f"\nSaving results to: {output_dir}/")
 
-    # Check for existing prompt files and filter them out
+    # Check for existing files and filter out already-processed prompts
     existing_indices = set()
     if output_dir.exists():
         for file_path in output_dir.glob("prompt_*.json"):
-            # Extract index from filename (e.g., "prompt_0001.json" -> 1)
             match = re.search(r"prompt_(\d+)\.json", file_path.name)
             if match:
                 existing_indices.add(int(match.group(1)))
 
     if existing_indices:
         print(f"Found {len(existing_indices)} existing prompt files")
-        # Filter out problems/prompts that already exist
-        filtered_data = [
-            (idx, prompt, problem)
-            for idx, (prompt, problem) in enumerate(zip(prompts, problems))
-            if idx not in existing_indices
+        sample_items = [
+            item for item in sample_items if item.prompt_index not in existing_indices
         ]
-        if filtered_data:
-            remaining_indices, remaining_prompts, remaining_problems = zip(
-                *filtered_data
-            )
-            # Remap indices to be sequential starting from 0 for processing
-            # But we need to preserve original indices for file naming
-            prompts_to_process = list(remaining_prompts)
-            problems_to_process = list(remaining_problems)
-            original_indices = list(remaining_indices)
-            print(
-                f"Will generate {len(prompts_to_process)} new prompts (target: {len(prompts)} total)"
-            )
-        else:
-            print("All prompts already exist! Nothing to generate.")
-            prompts_to_process = []
-            problems_to_process = []
-            original_indices = []
-    else:
-        print(f"Will generate {len(prompts)} prompts")
-        prompts_to_process = prompts
-        problems_to_process = problems
-        original_indices = list(range(len(prompts)))
+        print(f"Will generate {len(sample_items)} new samples")
 
-    # Store existing_indices count for summary
-    total_existing = len(existing_indices)
+    if not sample_items:
+        print("All prompts already exist! Nothing to generate.")
+        return
 
-    # Run async experiment only if there are prompts to process
-    if prompts_to_process:
-        results = asyncio.run(
-            run_prefill_async_with_indices(
-                client,
-                prompts_to_process,
-                problems_to_process,
-                original_indices,
-                output_dir,
-                config,
-                len(prompts),
-            )
-        )
-    else:
-        results = []
-
-    # Calculate overall success rate
-    total_successful = sum(1 for r in results if r.get("success", False))
-    total_skipped = sum(1 for r in results if r.get("skipped", False))
-    total_processed = len(results) - total_skipped
-    total_target = len(prompts)
+    print(f"\nStarting parallel batch sampling (batch_size={batch_size})...")
+    results = asyncio.run(sample_batch_async(client, sample_items, batch_size))
+    grouped_results = group_results_by_prompt(results)
+    problems_dict = {i: problem for i, problem in enumerate(problems)}
+    prompts_dict = {i: msg for i, msg in enumerate(user_messages)}
+    save_prompt_results(grouped_results, output_dir, problems_dict, prompts_dict)
+    total_successful = sum(1 for r in results if r["success"])
+    total_expected = len(sample_items)
+    total_prompts_processed = len(grouped_results)
+    total_prompts_target = len(problems)
 
     print(f"\n{'=' * 80}")
     print("PREFILL EXPERIMENT COMPLETE")
     print("=" * 80)
-    print(f"Target prompts: {total_target}")
-    print(f"  - Already existed: {total_existing}")
-    print(f"  - Newly processed: {total_processed}")
-    print(f"  - Skipped (errors): {total_skipped}")
-    print(f"Successfully completed: {total_successful}/{total_processed}")
-    if total_processed > 0:
-        print(f"Success rate: {total_successful / total_processed * 100:.1f}%")
+    print(f"Target prompts: {total_prompts_target}")
+    print(f"  - Already existed: {len(existing_indices)}")
+    print(f"  - Newly processed: {total_prompts_processed}")
+    print(f"Successfully completed: {total_successful}/{total_expected}")
+    print(f"Success rate: {total_successful / total_expected * 100:.1f}%")
     print(
-        f"Total prompts now available: {total_existing + total_successful}/{total_target}"
+        f"Total prompts now available: {len(existing_indices) + total_prompts_processed}/{total_prompts_target}"
     )
     print(f"Results saved to: {output_dir}/")
 
-    # Print sample result
-    if results and results[0].get("success") and not results[0].get("skipped"):
+    if results and results[0]["success"]:
         print(f"\n{'=' * 80}")
-        print("SAMPLE RESULT (Prompt 0)")
+        print("SAMPLE RESULT (First sample)")
         print(f"{'=' * 80}")
-        print("\nProblem:")
-        print(problems[0].get("problem") or problems[0].get("question", ""))
+        first_result = results[0]
+        prompt_idx = first_result["prompt_index"]
+        if prompt_idx < len(problems):
+            print("\nProblem:")
+            print(
+                problems[prompt_idx].get("problem")
+                or problems[prompt_idx].get("question", "")
+            )
         print("\nPrefill:")
-        print(exp_config.get("prefill", "")[:200] + "...")
+        print(prefill[:200] + "...")
         print("\nGenerated completion:")
-        completion = results[0].get("completion", {})
-        generated_text = completion.get("text", "")[:500]
-        print(generated_text + "...")
+        completion = first_result["completion"]
+        text = completion.get("text", "")[:500]
+        if completion.get("reasoning"):
+            text = completion["reasoning"][:500]
+        print(text + "...")
         print(f"{'=' * 80}")
 
 

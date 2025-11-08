@@ -53,7 +53,9 @@ class OpenRouterCompletionsClient:
             "Content-Type": "application/json",
         }
 
-    async def _complete_async(self, prompt: str, retry_count: int = 0) -> dict[str, Any]:
+    async def _complete_async(
+        self, prompt: str, retry_count: int = 0
+    ) -> dict[str, Any]:
         """Generate completion for a prompt (async).
 
         Args:

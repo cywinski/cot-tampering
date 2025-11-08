@@ -6,43 +6,18 @@ import sys
 from pathlib import Path
 
 import fire
-import yaml
 
 # Add src directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from openrouter_completions_client import OpenRouterCompletionsClient
-from thinking_trace_utils import (
+from sampling import (
+    OpenRouterCompletionsClient,
     build_completion_prompt,
     extract_thinking_trace,
     insert_text_in_thinking,
+    _clean_completion_result,
 )
-
-
-def load_config(config_path: str) -> dict:
-    """Load YAML configuration file.
-
-    Args:
-        config_path: Path to YAML config file
-
-    Returns:
-        Config dict
-    """
-    with open(config_path) as f:
-        return yaml.safe_load(f)
-
-
-def load_response_file(response_path: Path) -> dict:
-    """Load a response JSON file.
-
-    Args:
-        response_path: Path to response JSON file
-
-    Returns:
-        Response data dict
-    """
-    with open(response_path) as f:
-        return json.load(f)
+from utils import load_config, load_response_file
 
 
 def process_single_response(
@@ -66,11 +41,9 @@ def process_single_response(
     Returns:
         Result dict with experiment data
     """
-    # Extract configuration
     exp_config = config["experiment"]
     fmt_config = config["prompt_formatting"]
 
-    # Check if original response was successful
     if not response.get("success", False):
         return {
             "response_index": response_idx,
@@ -79,8 +52,6 @@ def process_single_response(
         }
 
     content = response["content"]
-
-    # Extract thinking trace
     thinking_tag = fmt_config["thinking_tag"]
     thinking_trace = extract_thinking_trace(content, thinking_tag)
 
@@ -91,12 +62,10 @@ def process_single_response(
             "error": f"No thinking trace found (looking for <{thinking_tag}> tags)",
         }
 
-    # Insert text in thinking trace
     insertion_text = exp_config["insertion_text"]
     insertion_position = exp_config["insertion_position"]
     seed = exp_config.get("seed")
 
-    # Use a deterministic seed based on prompt and response indices for reproducibility
     if seed is not None and insertion_position == "random":
         deterministic_seed = seed + prompt_idx * 1000 + response_idx
     else:
@@ -108,21 +77,19 @@ def process_single_response(
         )
     )
 
-    # Build complete modified thinking trace (before + insertion + after)
     modified_thinking_full = thinking_before + insertion_text + thinking_after
-
-    # For the completion, we use the full modified thinking trace
-    # The model will generate only the answer after </think>
     full_thinking = modified_thinking_full
-
-    # Check if we should close the thinking tag or leave it open
     close_thinking_tag = exp_config.get("close_thinking_tag", True)
 
+    prefix_user_tokens = fmt_config["prefix_user_tokens"]
+    postfix_user_tokens = fmt_config["postfix_user_tokens"]
+    prefix_assistant_tokens = fmt_config["prefix_assistant_tokens"]
+
     completion_prompt = build_completion_prompt(
-        prefix_tokens=fmt_config["prefix_tokens"],
+        prefix_user_tokens=prefix_user_tokens,
         user_message=user_message,
-        postfix_tokens=fmt_config["postfix_tokens"],
-        assistant_prefix=fmt_config["assistant_prefix"],
+        postfix_user_tokens=postfix_user_tokens,
+        prefix_assistant_tokens=prefix_assistant_tokens,
         thinking_tag=thinking_tag,
         full_thinking=full_thinking,
         close_thinking_tag=close_thinking_tag,
@@ -161,7 +128,7 @@ def process_single_response(
         "close_thinking_tag_mode": close_thinking_tag,
         "completion_token_count": completion_tokens,
         "prompt_sent_to_api": completion_prompt,
-        "completion": completion_result,
+        "completion": _clean_completion_result(completion_result),
         "full_reconstructed_response": full_reconstructed_response,
     }
 

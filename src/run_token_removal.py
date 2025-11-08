@@ -1,178 +1,26 @@
 # ABOUTME: Main script for token removal experiment
 # ABOUTME: Loads sampled responses, removes random tokens from thinking traces, and completes with OpenRouter API
 
-import json
+import asyncio
 import sys
 from pathlib import Path
 
 import fire
-import yaml
 
 # Add src directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from openrouter_completions_client import OpenRouterCompletionsClient
-from thinking_trace_utils import (
+from sampling import (
+    OpenRouterCompletionsClient,
+    SampleItem,
+    group_results_by_prompt,
+    sample_batch_async,
+    save_prompt_results,
     build_completion_prompt,
     extract_thinking_trace,
     remove_random_tokens,
 )
-
-
-def load_config(config_path: str) -> dict:
-    """Load YAML configuration file.
-
-    Args:
-        config_path: Path to YAML config file
-
-    Returns:
-        Config dict
-    """
-    with open(config_path) as f:
-        return yaml.safe_load(f)
-
-
-def load_response_file(response_path: Path) -> dict:
-    """Load a response JSON file.
-
-    Args:
-        response_path: Path to response JSON file
-
-    Returns:
-        Response data dict
-    """
-    with open(response_path) as f:
-        return json.load(f)
-
-
-def process_single_response(
-    response: dict,
-    response_idx: int,
-    user_message: str,
-    client: OpenRouterCompletionsClient,
-    config: dict,
-    prompt_idx: int,
-) -> dict:
-    """Process a single response: remove tokens and generate completion.
-
-    Args:
-        response: Single response dict
-        response_idx: Index of response
-        user_message: Original user message/prompt
-        client: OpenRouter completions client
-        config: Full experiment config
-        prompt_idx: Prompt index for logging
-
-    Returns:
-        Result dict with experiment data
-    """
-    # Extract configuration
-    exp_config = config["experiment"]
-    fmt_config = config["prompt_formatting"]
-
-    # Check if original response was successful
-    if not response.get("success", False):
-        return {
-            "response_index": response_idx,
-            "success": False,
-            "error": "Original response was not successful",
-        }
-
-    content = response["content"]
-
-    # Extract thinking trace
-    thinking_tag = fmt_config["thinking_tag"]
-    thinking_trace = extract_thinking_trace(content, thinking_tag)
-
-    if thinking_trace is None:
-        return {
-            "response_index": response_idx,
-            "success": False,
-            "error": f"No thinking trace found (looking for <{thinking_tag}> tags)",
-        }
-
-    # Remove tokens from thinking trace
-    n_tokens = exp_config.get("n_tokens_to_remove")
-    percentage = exp_config.get("percentage_to_remove")
-    seed = exp_config.get("seed")
-
-    # Use a deterministic seed based on prompt and response indices for reproducibility
-    if seed is not None:
-        deterministic_seed = seed + prompt_idx * 1000 + response_idx
-    else:
-        deterministic_seed = seed
-
-    try:
-        modified_thinking, removed_positions, n_tokens_removed = remove_random_tokens(
-            thinking_trace,
-            n_tokens=n_tokens,
-            percentage=percentage,
-            seed=deterministic_seed,
-        )
-    except ValueError as e:
-        return {
-            "response_index": response_idx,
-            "success": False,
-            "error": str(e),
-        }
-
-    # Check if we should close the thinking tag or leave it open
-    close_thinking_tag = exp_config.get("close_thinking_tag", True)
-
-    completion_prompt = build_completion_prompt(
-        prefix_tokens=fmt_config["prefix_tokens"],
-        user_message=user_message,
-        postfix_tokens=fmt_config["postfix_tokens"],
-        assistant_prefix=fmt_config["assistant_prefix"],
-        thinking_tag=thinking_tag,
-        full_thinking=modified_thinking,
-        close_thinking_tag=close_thinking_tag,
-    )
-
-    # Generate completion
-    original_token_count = len(thinking_trace.split())
-    percentage_removed = (
-        (n_tokens_removed / original_token_count) * 100
-        if original_token_count > 0
-        else 0
-    )
-
-    print(
-        f"  Response {response_idx}: Generating completion ({n_tokens_removed} tokens removed = {percentage_removed:.1f}% of {original_token_count} tokens)..."
-    )
-    completion_result = client.complete(completion_prompt)
-    # Analyze the completion
-    generated_text = completion_result.get("text", "")
-    reasoning_content = completion_result.get("reasoning", "")
-    completion_tokens = completion_result.get("usage", {}).get("completion_tokens", 0)
-
-    # For open mode with reasoning models, reasoning might be in separate field
-    # Combine reasoning + text to get full generated content
-    if reasoning_content:
-        full_generated = reasoning_content + f"</{thinking_tag}>\n" + generated_text
-    else:
-        full_generated = generated_text
-
-    # Reconstruct full response (prompt + completion)
-    full_reconstructed_response = completion_prompt + full_generated
-
-    print(f"  Response {response_idx}: Generated {completion_tokens} tokens, ")
-
-    # Build result
-    return {
-        "response_index": response_idx,
-        "success": completion_result.get("success", False),
-        "modified_thinking_full": modified_thinking,
-        "n_tokens_removed": n_tokens_removed,
-        "percentage_removed": percentage_removed,
-        "original_token_count": original_token_count,
-        "modified_token_count": len(modified_thinking.split()),
-        "close_thinking_tag_mode": close_thinking_tag,
-        "completion_token_count": completion_tokens,
-        "prompt_sent_to_api": completion_prompt,
-        "completion": completion_result,
-        "full_reconstructed_response": full_reconstructed_response,
-    }
+from utils import load_config, load_response_file
 
 
 def run_token_removal(
@@ -242,82 +90,138 @@ def run_token_removal(
         )
     else:
         print("ERROR: Must specify either n_tokens_to_remove or percentage_to_remove")
+        return
 
-    # Process each file
-    all_results = []
+    fmt_config = config["prompt_formatting"]
+    prefix_user_tokens = fmt_config["prefix_user_tokens"]
+    postfix_user_tokens = fmt_config["postfix_user_tokens"]
+    prefix_assistant_tokens = fmt_config["prefix_assistant_tokens"]
+    thinking_tag = fmt_config["thinking_tag"]
+    close_thinking_tag = exp_config.get("close_thinking_tag", True)
+
+    # Prepare sample items
+    sample_items: list[SampleItem] = []
+    problems_dict: dict[int, dict] = {}
+    prompts_dict: dict[int, str] = {}
+    seed = exp_config.get("seed")
+
     for file_path in response_files:
         prompt_idx = int(file_path.stem.split("_")[1])
-        print(f"\nProcessing prompt {prompt_idx:04d}...")
 
         # Load response file
         response_data = load_response_file(file_path)
 
-        # Get original prompt
-        prompt = response_data["prompt"]
-        user_message = prompt[0]["content"] if prompt else ""
+        # Store problem and prompt
+        if "problem" in response_data:
+            problems_dict[prompt_idx] = response_data["problem"]
+        if "prompt" in response_data:
+            # Extract user message if it's a list format
+            prompt = response_data["prompt"]
+            if isinstance(prompt, list) and prompt:
+                prompts_dict[prompt_idx] = prompt[0].get("content", "")
+            elif isinstance(prompt, str):
+                prompts_dict[prompt_idx] = prompt
 
         # Get all responses
         responses = response_data.get("responses", [])
-        print(f"  Found {len(responses)} responses")
+        print(f"\nProcessing prompt {prompt_idx:04d}: {len(responses)} responses")
 
-        # Process all responses for this prompt
-        prompt_results = []
+        # Get user message
+        user_message = prompts_dict.get(prompt_idx, "")
+        if not user_message:
+            # Try to extract from prompt field
+            prompt = response_data.get("prompt", [])
+            if isinstance(prompt, list) and prompt:
+                user_message = prompt[0].get("content", "")
+
         for response_idx, response in enumerate(responses):
+            # Check if original response was successful
+            if not response.get("success", False):
+                continue
+
+            content = response["content"]
+
+            # Extract thinking trace
+            thinking_trace = extract_thinking_trace(content, thinking_tag)
+            if thinking_trace is None:
+                continue
+
+            # Remove tokens from thinking trace
+            n_tokens = exp_config.get("n_tokens_to_remove")
+            percentage = exp_config.get("percentage_to_remove")
+
+            if seed is not None:
+                deterministic_seed = seed + prompt_idx * 1000 + response_idx
+            else:
+                deterministic_seed = seed
+
             try:
-                result = process_single_response(
-                    response,
-                    response_idx,
-                    user_message,
-                    client,
-                    config,
-                    prompt_idx,
-                )
-                prompt_results.append(result)
-
-                if result["success"]:
-                    print(f"  Response {response_idx}: Success!")
-                else:
-                    print(
-                        f"  Response {response_idx}: Failed - {result.get('error', 'Unknown error')}"
+                modified_thinking, removed_positions, n_tokens_removed = (
+                    remove_random_tokens(
+                        thinking_trace,
+                        n_tokens=n_tokens,
+                        percentage=percentage,
+                        seed=deterministic_seed,
                     )
-
-            except Exception as e:
-                print(f"  Response {response_idx}: Error - {str(e)}")
-                prompt_results.append(
-                    {
-                        "response_index": response_idx,
-                        "success": False,
-                        "error": str(e),
-                    }
                 )
+            except ValueError as e:
+                print(f"  Response {response_idx}: Error - {str(e)}")
+                continue
 
-        # Save all responses for this prompt in one file
-        output_file = output_dir / f"prompt_{prompt_idx:04d}.json"
-        output_data = {
-            "prompt_index": prompt_idx,
-            "responses": prompt_results,
-        }
-        with open(output_file, "w") as f:
-            json.dump(output_data, f, indent=2)
+            # Build completion prompt
+            completion_prompt = build_completion_prompt(
+                prefix_user_tokens=prefix_user_tokens,
+                user_message=user_message,
+                postfix_user_tokens=postfix_user_tokens,
+                prefix_assistant_tokens=prefix_assistant_tokens,
+                thinking_tag=thinking_tag,
+                full_thinking=modified_thinking,
+                close_thinking_tag=close_thinking_tag,
+            )
 
-        successful = sum(1 for r in prompt_results if r.get("success", False))
-        print(
-            f"  Saved {successful}/{len(prompt_results)} successful responses to {output_file.name}"
-        )
+            original_token_count = len(thinking_trace.split())
+            percentage_removed = (
+                (n_tokens_removed / original_token_count) * 100
+                if original_token_count > 0
+                else 0
+            )
 
-        all_results.extend(prompt_results)
+            sample_items.append(
+                SampleItem(
+                    prompt_str=completion_prompt,
+                    prompt_index=prompt_idx,
+                    response_index=response_idx,
+                    metadata={
+                        "n_tokens_removed": n_tokens_removed,
+                        "percentage_removed": percentage_removed,
+                        "original_token_count": original_token_count,
+                        "modified_token_count": len(modified_thinking.split()),
+                        "close_thinking_tag_mode": close_thinking_tag,
+                    },
+                )
+            )
 
-    # Summary
-    successful = sum(1 for r in all_results if r.get("success", False))
-    total = len(all_results)
+    if not sample_items:
+        print("No valid samples to process!")
+        return
+
+    print(f"\nCreated {len(sample_items)} sample items")
+    batch_size = exp_config.get("batch_size", 10)
+    print(f"Batch size: {batch_size} (processing in parallel)")
+
+    print(f"\nStarting parallel batch sampling (batch_size={batch_size})...")
+    results = asyncio.run(sample_batch_async(client, sample_items, batch_size))
+    grouped_results = group_results_by_prompt(results)
+    save_prompt_results(grouped_results, output_dir, problems_dict, prompts_dict)
+    successful = sum(1 for r in results if r["success"])
+    total = len(results)
 
     print(f"\n{'=' * 80}")
     print("EXPERIMENT COMPLETE")
     print("=" * 80)
     print(f"Total responses processed: {total}")
-    if total > 0:
-        print(f"Successful: {successful}/{total} ({successful / total * 100:.1f}%)")
-        print(f"Failed: {total - successful}/{total}")
+    print(f"Successful: {successful}/{total} ({successful / total * 100:.1f}%)")
+    print(f"Failed: {total - successful}/{total}")
     print(f"Results saved to: {output_dir}")
 
 

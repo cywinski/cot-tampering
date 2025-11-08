@@ -53,6 +53,37 @@ class OpenRouterCompletionsClient:
             "Content-Type": "application/json",
         }
 
+    def _parse_gpt_oss_response(self, text: str) -> tuple[str, str | None]:
+        """Parse GPT-OSS-120B response format.
+
+        Format: analysis<thinking_trace>assistantfinal<final_output>
+
+        Args:
+            text: Raw response text from API
+
+        Returns:
+            Tuple of (final_text, reasoning) where reasoning is None if not found
+        """
+        if not text.startswith("analysis"):
+            return (text, None)
+
+        # Find the "assistantfinal" marker
+        if "assistantfinal" not in text:
+            # If no marker found, treat everything after "analysis" as reasoning
+            reasoning = text[8:] if len(text) > 8 else ""
+            return ("", reasoning if reasoning else None)
+
+        # Split on "assistantfinal"
+        parts = text.split("assistantfinal", 1)
+        if len(parts) == 2:
+            reasoning = (
+                parts[0][8:] if len(parts[0]) > 8 else ""
+            )  # Remove "analysis" prefix
+            final_text = parts[1]
+            return (final_text, reasoning if reasoning else None)
+
+        return (text, None)
+
     async def _complete_async(
         self, prompt: str, retry_count: int = 0
     ) -> dict[str, Any]:
@@ -92,9 +123,17 @@ class OpenRouterCompletionsClient:
 
             # Extract response
             choice = data["choices"][0]
+            raw_text = choice.get("text", "")
+
+            # Parse GPT-OSS-120B format if this is that model
+            if self.model == "openai/gpt-oss-120b":
+                final_text, reasoning = self._parse_gpt_oss_response(raw_text)
+            else:
+                final_text = raw_text
+                reasoning = None
 
             result = {
-                "text": choice.get("text", ""),
+                "text": final_text,
                 "finish_reason": choice.get("finish_reason"),
                 "usage": {
                     "prompt_tokens": data["usage"]["prompt_tokens"],
@@ -105,12 +144,16 @@ class OpenRouterCompletionsClient:
                 "success": True,
             }
 
+            # Add parsed reasoning for GPT-OSS-120B
+            if reasoning is not None:
+                result["reasoning"] = reasoning
+
             # Check for reasoning/thinking content in response
             # OpenRouter may return reasoning in different fields depending on the model
             if "reasoning_content" in choice:
                 result["reasoning_content"] = choice["reasoning_content"]
 
-            if "reasoning" in choice:
+            if "reasoning" in choice and reasoning is None:
                 result["reasoning"] = choice["reasoning"]
 
             # Store the full raw response for debugging

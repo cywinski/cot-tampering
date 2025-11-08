@@ -56,7 +56,7 @@ class OpenRouterCompletionsClient:
     def _parse_gpt_oss_response(self, text: str) -> tuple[str, str | None]:
         """Parse GPT-OSS-120B response format.
 
-        Format: analysis<thinking_trace>assistantfinal<final_output>
+        Format: <|channel|>analysis<|message|><thinking_trace><|end|><|start|>assistant<|channel|>final<|message|><final_output>
 
         Args:
             text: Raw response text from API
@@ -64,22 +64,32 @@ class OpenRouterCompletionsClient:
         Returns:
             Tuple of (final_text, reasoning) where reasoning is None if not found
         """
-        if not text.startswith("analysis"):
+        # Look for the analysis channel marker
+        analysis_marker = "<|channel|>analysis<|message|>"
+        if analysis_marker not in text:
             return (text, None)
 
-        # Find the "assistantfinal" marker
-        if "assistantfinal" not in text:
-            # If no marker found, treat everything after "analysis" as reasoning
-            reasoning = text[8:] if len(text) > 8 else ""
+        # Find the transition marker to final output
+        final_marker = "<|end|><|start|>assistant<|channel|>final<|message|>"
+        if final_marker not in text:
+            # If no final marker found, extract everything after analysis marker as reasoning
+            reasoning_start = text.find(analysis_marker) + len(analysis_marker)
+            reasoning = text[reasoning_start:].strip()
             return ("", reasoning if reasoning else None)
 
-        # Split on "assistantfinal"
-        parts = text.split("assistantfinal", 1)
+        # Split on the final marker
+        parts = text.split(final_marker, 1)
         if len(parts) == 2:
-            reasoning = (
-                parts[0][8:] if len(parts[0]) > 8 else ""
-            )  # Remove "analysis" prefix
-            final_text = parts[1]
+            # Extract reasoning: everything between analysis marker and final marker
+            reasoning_start = parts[0].find(analysis_marker)
+            if reasoning_start != -1:
+                reasoning = parts[0][reasoning_start + len(analysis_marker) :].strip()
+            else:
+                reasoning = parts[0].strip()
+
+            # Extract final text: everything after final marker
+            final_text = parts[1].strip()
+
             return (final_text, reasoning if reasoning else None)
 
         return (text, None)

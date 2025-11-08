@@ -20,9 +20,8 @@ model:
   wrap_thinking: true  # Wrap reasoning in tags (e.g., <think>...</think>)
   thinking_tag: "think"  # Tag name to use (will be wrapped as <tag> and </tag>)
 
-  # Optional: OpenRouter rankings
-  # site_url: null  # Optional: site URL for OpenRouter rankings
-  # site_name: null  # Optional: site name for OpenRouter rankings
+openrouter:
+  providers: ["DeepInfra"]
 
 # Sampling configuration
 sampling:
@@ -36,7 +35,7 @@ dataset:
   name: "mmlu"
   params:
     subject: "marketing"
-  random_sample: 10  # Randomly sample N problems from dataset (null to use all)
+  random_sample: 1  # Randomly sample N problems from dataset (null to use all)
   random_seed: 42  # Random seed for reproducibility
 
 # Prompt formatting
@@ -45,6 +44,11 @@ prompt:
   field_name: "question"  # Field name to extract from dataset
   # custom_template: null  # Optional: custom template string with {} placeholder (overrides template)
 
+prompt_formatting:
+  prefix_user_tokens: "<|start|>system<|message|>You are ChatGPT, a large language model trained by OpenAI.\nKnowledge cutoff: 2024-06\n\nReasoning: medium\n\n# Valid channels: analysis, commentary, final. Channel must be included for every message.<|end|><|start|>user<|message|>"
+  postfix_user_tokens: "<|end|>\n"  # Optional: e.g., "<|im_end|>\n" for some models
+  prefix_assistant_tokens: "<|start|>assistant"
+  thinking_token: ""  # Tag used in source responses (e.g., "think", "redacted_reasoning")
 # Output configuration
 output:
   save_dir: "experiments/results/gpt-oss-120b/mmlu_marketing/samples/base"  # Base directory for results (subdirectory per dataset will be created)

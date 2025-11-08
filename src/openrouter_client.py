@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 try:
     from .sampling_config import SamplingConfig
 except ImportError:
-    from sampling_config import SamplingConfig
+    from sampling_config import SamplingConfig  # type: ignore[no-redef]
 
 load_dotenv()
 
@@ -87,12 +87,12 @@ class OpenRouterClient:
                 response.raise_for_status()
                 data = response.json()
 
-            # Extract response in Nebius-compatible format
+            # Extract response
             choice = data["choices"][0]
             message = choice["message"]
 
-            # OpenRouter returns reasoning in separate fields, but Nebius combines them
-            # To maintain compatibility, combine reasoning + content into single field
+            # OpenRouter returns reasoning in separate fields
+            # Combine reasoning + content into single field for unified format
             content = message.get("content", "")
 
             # OpenRouter puts reasoning in message['reasoning'] field
@@ -107,7 +107,7 @@ class OpenRouterClient:
                 else:
                     wrapped_reasoning = reasoning_content
 
-                # Format similar to how Nebius returns it: reasoning followed by answer
+                # Format: reasoning followed by answer
                 combined_content = f"{wrapped_reasoning}\n\n{content}"
             else:
                 combined_content = content
@@ -134,7 +134,9 @@ class OpenRouterClient:
             if retry_count < self.config.max_retries:
                 # Exponential backoff
                 await asyncio.sleep(2**retry_count)
-                return await self._sample_single_response_async(messages, retry_count + 1)
+                return await self._sample_single_response_async(
+                    messages, retry_count + 1
+                )
             else:
                 return {
                     "content": None,
@@ -184,9 +186,7 @@ class OpenRouterClient:
         """
         return await self._sample_prompt_async(messages)
 
-    def sample_prompt(
-        self, messages: list[dict[str, str]]
-    ) -> list[dict[str, Any]]:
+    def sample_prompt(self, messages: list[dict[str, str]]) -> list[dict[str, Any]]:
         """Sample multiple responses for a single prompt in parallel.
 
         Args:

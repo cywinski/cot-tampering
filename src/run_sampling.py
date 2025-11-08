@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 import fire
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 # Add src directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
@@ -58,7 +58,7 @@ async def sample_and_save_prompt(
     """Sample responses for a single prompt and save immediately (async).
 
     Args:
-        client: LLM client instance (NebiusClient or OpenRouterClient)
+        client: LLM client instance (OpenRouterClient)
         prompt_idx: Index of the prompt (for filename)
         prompt: Formatted prompt messages
         problem: Original problem dict
@@ -231,8 +231,8 @@ def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
     model_config = config["model"]
     sampling_config_dict = config["sampling"]
 
-    # Get provider (defaults to nebius for backward compatibility)
-    provider = model_config.get("provider", "nebius")
+    # Get provider (defaults to openrouter)
+    provider = model_config.get("provider", "openrouter")
 
     sampling_config = SamplingConfig(
         model=model_config["name"],
@@ -244,7 +244,7 @@ def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
         max_retries=sampling_config_dict["max_retries"],
         timeout=sampling_config_dict["timeout"],
         batch_size=sampling_config_dict.get("batch_size", 1),
-        # OpenRouter-specific options (ignored by Nebius)
+        # OpenRouter-specific options
         logprobs=model_config.get("logprobs", False),
         top_logprobs=model_config.get("top_logprobs", 5),
         reasoning=model_config.get("reasoning", False),

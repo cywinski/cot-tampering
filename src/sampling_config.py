@@ -1,5 +1,5 @@
-# ABOUTME: Shared configuration and client factory for LLM sampling across different providers
-# ABOUTME: Supports Nebius and OpenRouter APIs with unified interface for sampling configuration
+# ABOUTME: Shared configuration and client factory for LLM sampling
+# ABOUTME: Supports OpenRouter API with unified interface for sampling configuration
 
 from __future__ import annotations
 
@@ -18,10 +18,12 @@ class SamplingConfig:
     top_k: int | None = None
     n_responses: int = 1
     max_retries: int = 3
-    timeout: float | None = 60.0  # Set to None for no timeout (useful for reasoning models)
+    timeout: float | None = (
+        60.0  # Set to None for no timeout (useful for reasoning models)
+    )
     batch_size: int = 1  # Number of prompts to process in parallel (for n_responses=1)
 
-    # OpenRouter-specific options (ignored by Nebius)
+    # OpenRouter-specific options
     logprobs: bool = False
     top_logprobs: int = 5
     reasoning: bool = False
@@ -33,34 +35,26 @@ class SamplingConfig:
     thinking_tag: str = "think"  # Tag name to use (will be <tag> and </tag>)
 
 
-def create_client(
-    provider: Literal["nebius", "openrouter"], config: SamplingConfig
-):
+def create_client(provider: Literal["openrouter"], config: SamplingConfig):
     """Create an LLM client based on provider type.
 
     Args:
-        provider: Provider name ("nebius" or "openrouter")
+        provider: Provider name ("openrouter")
         config: Sampling configuration
 
     Returns:
-        Client instance (NebiusClient or OpenRouterClient)
+        Client instance (OpenRouterClient)
 
     Raises:
         ValueError: If provider is not supported
     """
-    if provider == "nebius":
-        try:
-            from .nebius_client import NebiusClient
-        except ImportError:
-            from nebius_client import NebiusClient
-        return NebiusClient(config)
-    elif provider == "openrouter":
+    if provider == "openrouter":
         try:
             from .openrouter_client import OpenRouterClient
         except ImportError:
-            from openrouter_client import OpenRouterClient
+            from openrouter_client import OpenRouterClient  # type: ignore[no-redef]
         return OpenRouterClient(config)
     else:
         raise ValueError(
-            f"Unknown provider: {provider}. Supported providers: nebius, openrouter"
+            f"Unknown provider: {provider}. Supported providers: openrouter"
         )

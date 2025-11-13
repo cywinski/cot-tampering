@@ -16,17 +16,13 @@ model:
   logprobs: false  # Return log probabilities
   top_logprobs: 5  # Number of top logprobs per token
 
-  # Thinking tags for wrapping reasoning traces (OpenRouter only)
-  wrap_thinking: true  # Wrap reasoning in tags (e.g., <think>...</think>)
-  thinking_tag: "think"  # Tag name to use (will be wrapped as <tag> and </tag>)
-
 openrouter:
   providers: ["DeepInfra"]
 
 # Sampling configuration
 sampling:
-  n_responses: 1  # Number of responses to sample per problem
-  batch_size: 10  # Number of responses to sample per batch
+  n_responses: 5  # Number of responses to sample per problem
+  batch_size: 20  # Number of responses to sample per batch
   max_retries: 3  # Maximum retries for failed API calls
   timeout: null  # Timeout in seconds (null = no timeout, important for reasoning models that may take very long)
 
@@ -35,7 +31,7 @@ dataset:
   name: "mmlu"
   params:
     subject: "marketing"
-  random_sample: 1  # Randomly sample N problems from dataset (null to use all)
+  random_sample: null  # Randomly sample N problems from dataset (null to use all)
   random_seed: 42  # Random seed for reproducibility
 
 # Prompt formatting
@@ -45,11 +41,11 @@ prompt:
   # custom_template: null  # Optional: custom template string with {} placeholder (overrides template)
 
 prompt_formatting:
-  prefix_user_tokens: "<|start|>system<|message|>You are ChatGPT, a large language model trained by OpenAI.\nKnowledge cutoff: 2024-06\n\nReasoning: medium\n\n# Valid channels: analysis, commentary, final. Channel must be included for every message.<|end|><|start|>user<|message|>"
+  prefix_user_tokens: "<|start|>system<|message|>You are ChatGPT, a large language model trained by OpenAI.\nKnowledge cutoff: 2024-06\n\nReasoning: high\n\n# Valid channels: analysis, commentary, final. Channel must be included for every message.<|end|>\n<|start|>user<|message|>"
   postfix_user_tokens: "<|end|>\n"  # Optional: e.g., "<|im_end|>\n" for some models
   prefix_assistant_tokens: "<|start|>assistant"
   thinking_token: ""  # Tag used in source responses (e.g., "think", "redacted_reasoning")
 # Output configuration
 output:
-  save_dir: "experiments/results/gpt-oss-120b/mmlu_marketing/samples/base"  # Base directory for results (subdirectory per dataset will be created)
+  save_dir: "experiments/results_final/gpt-oss-120b/mmlu/marketing/samples"  # Base directory for results (subdirectory per dataset will be created)
   # Each prompt's responses saved to individual JSON files: prompt_0000.json, prompt_0001.json, etc.

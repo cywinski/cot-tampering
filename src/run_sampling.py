@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import fire
+from tqdm import tqdm
 
 # Add src directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
@@ -89,7 +90,6 @@ def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
         )
         for msg in user_messages
     ]
-    print(completion_prompts)
 
     # Setup client
     model_config = config["model"]
@@ -135,7 +135,11 @@ def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
 
     existing_indices = set()
     if output_dir.exists():
-        for file_path in output_dir.glob("prompt_*.json"):
+        for file_path in tqdm(
+            output_dir.glob("prompt_*.json"),
+            desc="Checking existing files",
+            leave=False,
+        ):
             match = re.search(r"prompt_(\d+)\.json", file_path.name)
             if match:
                 existing_indices.add(int(match.group(1)))
@@ -152,11 +156,16 @@ def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
         return
 
     print(f"\nStarting parallel batch sampling (batch_size={batch_size})...")
-    results = asyncio.run(sample_batch_async(client, sample_items, batch_size))
+    results = asyncio.run(
+        sample_batch_async(client, sample_items, batch_size, show_progress=True)
+    )
     grouped_results = group_results_by_prompt(results)
     problems_dict = {i: problem for i, problem in enumerate(problems)}
     prompts_dict = {i: msg for i, msg in enumerate(user_messages)}
-    save_prompt_results(grouped_results, output_dir, problems_dict, prompts_dict)
+
+    save_prompt_results(
+        grouped_results, output_dir, problems_dict, prompts_dict, show_progress=True
+    )
     total_successful = sum(1 for r in results if r["success"])
     total_expected = len(sample_items)
     total_prompts_processed = len(grouped_results)

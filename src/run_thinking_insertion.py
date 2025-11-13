@@ -52,14 +52,42 @@ def process_single_response(
         }
 
     content = response["content"]
-    thinking_tag = fmt_config["thinking_tag"]
+
+    # Get thinking tokens from config
+    open_thinking_token = fmt_config.get("open_thinking_token") or fmt_config.get(
+        "thinking_token"
+    )
+    close_thinking_token = fmt_config.get("close_thinking_token")
+
+    # Fallback: construct from thinking_tag if tokens not provided (backward compatibility)
+    if open_thinking_token is None:
+        thinking_tag = fmt_config.get("thinking_tag", "think")
+        open_thinking_token = f"<{thinking_tag}>"
+        if close_thinking_token is None:
+            close_thinking_token = f"</{thinking_tag}>"
+    elif close_thinking_token is None:
+        # Derive close token from open token
+        if open_thinking_token.startswith("<") and open_thinking_token.endswith(">"):
+            tag_name = open_thinking_token[1:-1]
+            close_thinking_token = f"</{tag_name}>"
+        else:
+            raise ValueError(
+                f"Cannot derive close_thinking_token from open_thinking_token: {open_thinking_token}"
+            )
+
+    # Derive thinking_tag for extraction purposes (strip angle brackets)
+    if open_thinking_token.startswith("<") and open_thinking_token.endswith(">"):
+        thinking_tag = open_thinking_token[1:-1]
+    else:
+        thinking_tag = open_thinking_token
+
     thinking_trace = extract_thinking_trace(content, thinking_tag)
 
     if thinking_trace is None:
         return {
             "response_index": response_idx,
             "success": False,
-            "error": f"No thinking trace found (looking for <{thinking_tag}> tags)",
+            "error": f"No thinking trace found (looking for {open_thinking_token} tags)",
         }
 
     insertion_text = exp_config["insertion_text"]
@@ -90,7 +118,8 @@ def process_single_response(
         user_message=user_message,
         postfix_user_tokens=postfix_user_tokens,
         prefix_assistant_tokens=prefix_assistant_tokens,
-        thinking_tag=thinking_tag,
+        open_thinking_token=open_thinking_token,
+        close_thinking_token=close_thinking_token,
         full_thinking=full_thinking,
         close_thinking_tag=close_thinking_tag,
     )
@@ -109,7 +138,9 @@ def process_single_response(
     # For open mode with reasoning models, reasoning might be in separate field
     # Combine reasoning + text to get full generated content
     if reasoning_content:
-        full_generated = reasoning_content + f"</{thinking_tag}>\n" + generated_text
+        full_generated = (
+            reasoning_content + f"{close_thinking_token}\n" + generated_text
+        )
     else:
         full_generated = generated_text
 

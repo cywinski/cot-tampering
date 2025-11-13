@@ -123,7 +123,35 @@ async def process_single_prompt_async(
 
     exp_config = config["experiment"]
     fmt_config = config["prompt_formatting"]
-    thinking_tag = fmt_config.get("thinking_tag", "think")
+
+    # Get thinking tokens from config
+    open_thinking_token = fmt_config.get("open_thinking_token") or fmt_config.get(
+        "thinking_token"
+    )
+    close_thinking_token = fmt_config.get("close_thinking_token")
+
+    # Fallback: construct from thinking_tag if tokens not provided (backward compatibility)
+    if open_thinking_token is None:
+        thinking_tag = fmt_config.get("thinking_tag", "think")
+        open_thinking_token = f"<{thinking_tag}>"
+        if close_thinking_token is None:
+            close_thinking_token = f"</{thinking_tag}>"
+    elif close_thinking_token is None:
+        # Derive close token from open token
+        if open_thinking_token.startswith("<") and open_thinking_token.endswith(">"):
+            tag_name = open_thinking_token[1:-1]
+            close_thinking_token = f"</{tag_name}>"
+        else:
+            raise ValueError(
+                f"Cannot derive close_thinking_token from open_thinking_token: {open_thinking_token}"
+            )
+
+    # Derive thinking_tag for extraction purposes (strip angle brackets)
+    if open_thinking_token.startswith("<") and open_thinking_token.endswith(">"):
+        thinking_tag = open_thinking_token[1:-1]
+    else:
+        thinking_tag = open_thinking_token
+
     prefix_user_tokens = fmt_config.get("prefix_user_tokens", "")
     postfix_user_tokens = fmt_config.get("postfix_user_tokens", "")
     prefix_assistant_tokens = fmt_config.get("prefix_assistant_tokens", "")
@@ -144,7 +172,7 @@ async def process_single_prompt_async(
         return {
             "prompt_index": prompt_idx,
             "success": False,
-            "error": f"Could not extract CoT from source response (looking for <{thinking_tag}> tags)",
+            "error": f"Could not extract CoT from source response (looking for {open_thinking_token} tags)",
         }
 
     if close_thinking_tag:
@@ -153,7 +181,8 @@ async def process_single_prompt_async(
             user_message=user_message,
             postfix_user_tokens=postfix_user_tokens,
             prefix_assistant_tokens=prefix_assistant_tokens,
-            thinking_tag=thinking_tag,
+            open_thinking_token=open_thinking_token,
+            close_thinking_token=close_thinking_token,
             full_thinking=cot_prefill,
             close_thinking_tag=True,
         )

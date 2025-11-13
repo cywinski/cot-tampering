@@ -33,9 +33,10 @@ experiment:
   end_index: 10  # Process first 10 for testing
   # Note: ALL responses per prompt will be processed
 
-  # Token removal configuration (specify EITHER n_tokens_to_remove OR percentage_to_remove)
+  # Token removal configuration (specify EXACTLY ONE of: n_tokens_to_remove, percentage_to_remove, or cut_at_percentage)
   # n_tokens_to_remove: 50  # Number of random tokens to remove from each trace
-  percentage_to_remove: 0.90  # Percentage of tokens to remove (0.10 = 10%)
+  percentage_to_remove: 0.90  # Percentage of random tokens to remove (0.10 = 10%)
+  # cut_at_percentage: 0.5  # Cut trace at percentage - keep first X% of tokens from beginning (0.5 = 50% = keep first half)
 
   # Thinking tag mode
   close_thinking_tag: false  # FALSE = leave tag open, model can continue thinking

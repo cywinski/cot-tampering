@@ -26,24 +26,29 @@ model:
 
 # Sampling configuration
 sampling:
-  n_responses: 1  # Number of responses to sample per problem
-  batch_size: 10  # Number of responses to sample per batch
+  n_responses: 5  # Number of responses to sample per problem
+  batch_size: 5  # Number of responses to sample per batch
   max_retries: 3  # Maximum retries for failed API calls
   timeout: null  # Timeout in seconds (null = no timeout, important for reasoning models that may take very long)
 
 # Dataset configuration
 dataset:
   name: "math500"  # MATH-500 dataset
-  random_sample: 50  # Randomly sample N problems from dataset (null to use all)
+  random_sample: 1  # Randomly sample N problems from dataset (null to use all)
   random_seed: 42  # Random seed for reproducibility
 
 # Prompt formatting
 prompt:
-  template: "cot_introspection"  # Template name from PROMPT_TEMPLATES in src/prompt_formatter.py
+  template: "math500_standard"  # Template name from PROMPT_TEMPLATES in src/prompt_formatter.py
   field_name: "problem"  # Field name to extract from dataset
   # custom_template: null  # Optional: custom template string with {} placeholder (overrides template)
 
 # Output configuration
 output:
-  save_dir: "experiments/results/deepseek-r1/math500v2/samples"  # Base directory for results (subdirectory per dataset will be created)
-  # Each prompt's responses saved to individual JSON files: prompt_0000.json, prompt_0001.json, etc.
+  save_dir: "experiments/results_final/deepseek-r1/math500/samples"
+
+prompt_formatting:
+  prefix_user_tokens: "<｜begin▁of▁sentence｜><｜User｜>"
+  postfix_user_tokens: ""  # Optional: e.g., "<|im_end|>\n" for some models
+  prefix_assistant_tokens: "<｜Assistant｜>"
+  thinking_token: "<think>\n"  # Tag used in source responses (e.g., "think", "redacted_reasoning")

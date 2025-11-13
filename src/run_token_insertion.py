@@ -1,5 +1,5 @@
-# ABOUTME: Main script for token removal experiment
-# ABOUTME: Loads sampled responses, removes random tokens from thinking traces, and completes with OpenRouter API
+# ABOUTME: Main script for token insertion experiment
+# ABOUTME: Loads sampled responses, inserts random tokens into thinking traces, and completes with OpenRouter API
 
 import asyncio
 import sys
@@ -15,20 +15,19 @@ from sampling import (
     OpenRouterCompletionsClient,
     SampleItem,
     build_completion_prompt,
-    cut_thinking_trace_at_percentage,
     extract_thinking_trace,
     group_results_by_prompt,
-    remove_random_tokens,
+    insert_random_tokens,
     sample_batch_async,
     save_prompt_results,
 )
 from utils import create_formatter, load_config, load_response_file
 
 
-def run_token_removal(
-    config_path: str = "experiments/configs/token_removal_experiment.yaml",
+def run_token_insertion(
+    config_path: str = "experiments/configs/token_insertion_experiment.yaml",
 ):
-    """Run token removal experiment.
+    """Run token insertion experiment.
 
     Args:
         config_path: Path to YAML configuration file
@@ -95,66 +94,30 @@ def run_token_removal(
     print("Processing ALL responses per prompt")
 
     # Determine which operations to perform
-    n_tokens_to_remove = exp_config.get("n_tokens_to_remove")
-    percentage_to_remove = exp_config.get("percentage_to_remove")
-    cut_at_percentage = exp_config.get("cut_at_percentage")
-    cut_start_percentage = exp_config.get("cut_start_percentage")
-    cut_end_percentage = exp_config.get("cut_end_percentage")
+    n_tokens_to_insert = exp_config.get("n_tokens_to_insert")
+    percentage_to_insert = exp_config.get("percentage_to_insert")
 
     # Validate operations
-    has_cut = cut_at_percentage is not None or (
-        cut_start_percentage is not None and cut_end_percentage is not None
-    )
-    has_removal = n_tokens_to_remove is not None or percentage_to_remove is not None
-
-    if not has_cut and not has_removal:
+    if n_tokens_to_insert is None and percentage_to_insert is None:
         print(
-            "ERROR: Must specify at least one of: cut_at_percentage, (cut_start_percentage + cut_end_percentage), n_tokens_to_remove, or percentage_to_remove"
+            "ERROR: Must specify at least one of: n_tokens_to_insert or percentage_to_insert"
         )
         return
 
-    if n_tokens_to_remove is not None and percentage_to_remove is not None:
-        print("ERROR: Cannot specify both n_tokens_to_remove and percentage_to_remove")
-        return
-
-    if cut_at_percentage is not None and (
-        cut_start_percentage is not None or cut_end_percentage is not None
-    ):
-        print(
-            "ERROR: Cannot specify both cut_at_percentage and (cut_start_percentage/cut_end_percentage)"
-        )
-        return
-
-    if (cut_start_percentage is not None) != (cut_end_percentage is not None):
-        print(
-            "ERROR: Must specify both cut_start_percentage and cut_end_percentage together"
-        )
+    if n_tokens_to_insert is not None and percentage_to_insert is not None:
+        print("ERROR: Cannot specify both n_tokens_to_insert and percentage_to_insert")
         return
 
     # Print operation summary
-    operations = []
-    if has_cut:
-        if cut_start_percentage is not None and cut_end_percentage is not None:
-            operations.append(
-                f"Cutting trace from {cut_start_percentage * 100:.1f}% to {cut_end_percentage * 100:.1f}% "
-                f"(keeping {cut_end_percentage * 100 - cut_start_percentage * 100:.1f}% from middle)"
-            )
-        elif cut_at_percentage is not None:
-            operations.append(
-                f"Cutting trace at {cut_at_percentage * 100:.1f}% (keeping first {cut_at_percentage * 100:.1f}%)"
-            )
-    if has_removal:
-        if n_tokens_to_remove is not None:
-            operations.append(f"Removing {n_tokens_to_remove} random tokens")
-        elif percentage_to_remove is not None:
-            operations.append(
-                f"Removing {percentage_to_remove * 100:.1f}% of random tokens"
-            )
+    if n_tokens_to_insert is not None:
+        operations = f"Inserting {n_tokens_to_insert} random tokens"
+    elif percentage_to_insert is not None:
+        operations = (
+            f"Inserting {percentage_to_insert * 100:.1f}% of original trace length "
+            f"({percentage_to_insert * 100:.1f}% means inserting tokens equal to {percentage_to_insert * 100:.1f}% of original length)"
+        )
 
-    if len(operations) > 1:
-        print(f"Operations: {' -> '.join(operations)}")
-    else:
-        print(f"Operation: {operations[0]}")
+    print(f"Operation: {operations}")
 
     # Use completion_prompt_formatting if specified, otherwise fall back to prompt_formatting
     fmt_config = (
@@ -296,12 +259,9 @@ def run_token_removal(
                 print(f"    Response keys: {list(response.keys())}")
                 continue
 
-            # Process thinking trace based on operation type
-            n_tokens = exp_config.get("n_tokens_to_remove")
-            percentage = exp_config.get("percentage_to_remove")
-            cut_at_percentage = exp_config.get("cut_at_percentage")
-            cut_start_percentage = exp_config.get("cut_start_percentage")
-            cut_end_percentage = exp_config.get("cut_end_percentage")
+            # Process thinking trace - insert random tokens
+            n_tokens = exp_config.get("n_tokens_to_insert")
+            percentage = exp_config.get("percentage_to_insert")
 
             try:
                 # Calculate original token count using tokenizer if available
@@ -312,48 +272,20 @@ def run_token_removal(
                 else:
                     original_token_count = len(thinking_trace.split())
 
-                current_thinking = thinking_trace
-                total_tokens_removed = 0
-
-                # Step 1: Cut trace at percentage(s) if specified
-                if cut_start_percentage is not None and cut_end_percentage is not None:
-                    # Cut from start_percentage to end_percentage
-                    current_thinking, n_tokens_kept = cut_thinking_trace_at_percentage(
-                        current_thinking,
-                        cut_end_percentage,
-                        tokenizer=tokenizer,
-                        start_percentage=cut_start_percentage,
-                    )
-                    tokens_removed_by_cut = original_token_count - n_tokens_kept
-                    total_tokens_removed += tokens_removed_by_cut
-                elif cut_at_percentage is not None:
-                    # Cut at percentage (backward compatibility - keeps first X%)
-                    current_thinking, n_tokens_kept = cut_thinking_trace_at_percentage(
-                        current_thinking, cut_at_percentage, tokenizer=tokenizer
-                    )
-                    tokens_removed_by_cut = original_token_count - n_tokens_kept
-                    total_tokens_removed += tokens_removed_by_cut
-
-                # Step 2: Remove tokens from the (possibly cut) trace
-                if n_tokens is not None or percentage is not None:
-                    if seed is not None:
-                        deterministic_seed = seed + prompt_idx * 1000 + response_idx
-                    else:
-                        deterministic_seed = seed
-
-                    modified_thinking, removed_positions, tokens_removed_by_random = (
-                        remove_random_tokens(
-                            current_thinking,
-                            n_tokens=n_tokens,
-                            percentage=percentage,
-                            seed=deterministic_seed,
-                            tokenizer=tokenizer,
-                        )
-                    )
-                    total_tokens_removed += tokens_removed_by_random
+                if seed is not None:
+                    deterministic_seed = seed + prompt_idx * 1000 + response_idx
                 else:
-                    # Only cutting, no random removal
-                    modified_thinking = current_thinking
+                    deterministic_seed = seed
+
+                modified_thinking, insertion_positions, tokens_inserted = (
+                    insert_random_tokens(
+                        thinking_trace,
+                        n_tokens=n_tokens,
+                        percentage=percentage,
+                        seed=deterministic_seed,
+                        tokenizer=tokenizer,
+                    )
+                )
 
                 # Calculate final statistics
                 if tokenizer is not None:
@@ -363,12 +295,12 @@ def run_token_removal(
                 else:
                     final_token_count = len(modified_thinking.split())
 
-                percentage_removed = (
-                    (total_tokens_removed / original_token_count) * 100
+                percentage_inserted = (
+                    (tokens_inserted / original_token_count) * 100
                     if original_token_count > 0
                     else 0
                 )
-                n_tokens_removed = total_tokens_removed
+                n_tokens_inserted = tokens_inserted
 
             except ValueError as e:
                 print(f"  Response {response_idx}: Error - {str(e)}")
@@ -392,8 +324,8 @@ def run_token_removal(
                     prompt_index=prompt_idx,
                     response_index=response_idx,
                     metadata={
-                        "n_tokens_removed": n_tokens_removed,
-                        "percentage_removed": percentage_removed,
+                        "n_tokens_inserted": n_tokens_inserted,
+                        "percentage_inserted": percentage_inserted,
                         "original_token_count": original_token_count,
                         "modified_token_count": final_token_count,
                         "close_thinking_tag_mode": close_thinking_tag,
@@ -437,4 +369,4 @@ def run_token_removal(
 
 
 if __name__ == "__main__":
-    fire.Fire(run_token_removal)
+    fire.Fire(run_token_insertion)

@@ -102,7 +102,35 @@ def run_sentence_removal(
     prefix_user_tokens = fmt_config["prefix_user_tokens"]
     postfix_user_tokens = fmt_config["postfix_user_tokens"]
     prefix_assistant_tokens = fmt_config["prefix_assistant_tokens"]
-    thinking_tag = fmt_config["thinking_tag"]
+
+    # Get thinking tokens from config
+    open_thinking_token = fmt_config.get("open_thinking_token") or fmt_config.get(
+        "thinking_token"
+    )
+    close_thinking_token = fmt_config.get("close_thinking_token")
+
+    # Fallback: construct from thinking_tag if tokens not provided (backward compatibility)
+    if open_thinking_token is None:
+        thinking_tag = fmt_config.get("thinking_tag", "think")
+        open_thinking_token = f"<{thinking_tag}>"
+        if close_thinking_token is None:
+            close_thinking_token = f"</{thinking_tag}>"
+    elif close_thinking_token is None:
+        # Derive close token from open token
+        if open_thinking_token.startswith("<") and open_thinking_token.endswith(">"):
+            tag_name = open_thinking_token[1:-1]
+            close_thinking_token = f"</{tag_name}>"
+        else:
+            raise ValueError(
+                f"Cannot derive close_thinking_token from open_thinking_token: {open_thinking_token}"
+            )
+
+    # Derive thinking_tag for extraction purposes (strip angle brackets)
+    if open_thinking_token.startswith("<") and open_thinking_token.endswith(">"):
+        thinking_tag = open_thinking_token[1:-1]
+    else:
+        thinking_tag = open_thinking_token
+
     close_thinking_tag = exp_config.get("close_thinking_tag", True)
 
     # Prepare sample items
@@ -179,7 +207,8 @@ def run_sentence_removal(
                 user_message=user_message,
                 postfix_user_tokens=postfix_user_tokens,
                 prefix_assistant_tokens=prefix_assistant_tokens,
-                thinking_tag=thinking_tag,
+                open_thinking_token=open_thinking_token,
+                close_thinking_token=close_thinking_token,
                 full_thinking=modified_thinking,
                 close_thinking_tag=close_thinking_tag,
             )

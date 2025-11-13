@@ -9,6 +9,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from tqdm import tqdm
+from tqdm.asyncio import tqdm as async_tqdm
+
 from .completions_client import OpenRouterCompletionsClient
 
 
@@ -55,6 +58,7 @@ async def sample_batch_async(
     client: OpenRouterCompletionsClient,
     sample_items: list[SampleItem],
     batch_size: int = 10,
+    show_progress: bool = True,
 ) -> list[dict[str, Any]]:
     """Sample responses for a batch of prompts asynchronously with controlled parallelism.
 
@@ -62,6 +66,7 @@ async def sample_batch_async(
         client: OpenRouter completions client
         sample_items: List of SampleItem objects to sample
         batch_size: Maximum number of concurrent API calls
+        show_progress: Whether to show progress bar
 
     Returns:
         List of result dicts in same order as sample_items, each containing:
@@ -87,7 +92,19 @@ async def sample_batch_async(
             }
 
     tasks = [sample_with_semaphore(item) for item in sample_items]
-    results = await asyncio.gather(*tasks)
+
+    if show_progress:
+        results = []
+        with async_tqdm(total=len(tasks), desc="Sampling", unit="sample") as pbar:
+            for coro in asyncio.as_completed(tasks):
+                result = await coro
+                results.append(result)
+                pbar.update(1)
+        # Sort results to maintain order matching sample_items
+        results.sort(key=lambda r: (r["prompt_index"], r["response_index"]))
+    else:
+        results = await asyncio.gather(*tasks)
+
     return list(results)
 
 
@@ -114,24 +131,59 @@ def group_results_by_prompt(
 def _clean_completion_result(completion: dict[str, Any]) -> dict[str, Any]:
     """Remove redundant reasoning fields from completion result.
 
+    For GPT-OSS models, splits the text field at the final message marker
+    to separate reasoning from the final answer.
+
     Args:
         completion: Raw completion result dict
 
     Returns:
         Cleaned completion dict without redundant reasoning
     """
-    cleaned = {
-        "text": completion.get("text"),
-        "finish_reason": completion.get("finish_reason"),
-        "usage": completion.get("usage", {}),
-        "model": completion.get("model"),
-        "success": completion.get("success", False),
-    }
+    model = completion.get("model", "")
+    text = completion.get("text", "")
 
-    if "reasoning" in completion:
-        cleaned["reasoning"] = completion["reasoning"]
-    if "reasoning_content" in completion:
-        cleaned["reasoning_content"] = completion["reasoning_content"]
+    # Handle GPT-OSS models: split text at final message marker
+    # GPT-OSS returns everything in "text" field, need to split at marker
+    if "gpt-oss" in model.lower():
+        final_marker = "<|end|><|start|>assistant<|channel|>final<|message|>"
+        if final_marker in text:
+            parts = text.split(final_marker, 1)
+            reasoning = parts[0].strip() if parts[0] else ""
+            final_text = parts[1].strip() if len(parts) > 1 else ""
+            cleaned = {
+                "text": final_text,
+                "reasoning": reasoning,
+                "finish_reason": completion.get("finish_reason"),
+                "usage": completion.get("usage", {}),
+                "model": model,
+                "success": completion.get("success", False),
+            }
+        else:
+            # No marker found, treat entire text as reasoning (open thinking mode)
+            cleaned = {
+                "text": "",
+                "reasoning": text,
+                "finish_reason": completion.get("finish_reason"),
+                "usage": completion.get("usage", {}),
+                "model": model,
+                "success": completion.get("success", False),
+            }
+    else:
+        # Standard handling for other models
+        cleaned = {
+            "text": text,
+            "finish_reason": completion.get("finish_reason"),
+            "usage": completion.get("usage", {}),
+            "model": model,
+            "success": completion.get("success", False),
+        }
+
+        if "reasoning" in completion:
+            cleaned["reasoning"] = completion["reasoning"]
+        if "reasoning_content" in completion:
+            cleaned["reasoning_content"] = completion["reasoning_content"]
+
     if "error" in completion:
         cleaned["error"] = completion["error"]
 
@@ -158,6 +210,7 @@ def save_prompt_results(
     output_dir: Path,
     problems: dict[int, dict[str, Any]] | None = None,
     original_prompts: dict[int, str] | None = None,
+    show_progress: bool = True,
 ) -> None:
     """Save grouped results to JSON files (one per prompt).
 
@@ -166,23 +219,36 @@ def save_prompt_results(
         output_dir: Directory to save JSON files
         problems: Optional dict mapping prompt_index to problem dict
         original_prompts: Optional dict mapping prompt_index to original prompt string
+        show_progress: Whether to show progress bar
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    for prompt_idx, responses in grouped_results.items():
+    items = list(grouped_results.items())
+    iterator = (
+        tqdm(items, desc="Saving results", unit="prompt", leave=False)
+        if show_progress
+        else items
+    )
+
+    for prompt_idx, responses in iterator:
         responses_sorted = sorted(responses, key=lambda r: r["response_index"])
+        result_responses = []
+        for r in responses_sorted:
+            response_data = {
+                "response_index": r["response_index"],
+                "prompt_sent_to_api": r["prompt_sent_to_api"],
+                "completion": _clean_completion_result(r["completion"]),
+                "success": r["success"],
+                **r["metadata"],
+            }
+            # Add original response if present
+            if "original_response" in r:
+                response_data["original_response"] = r["original_response"]
+            result_responses.append(response_data)
+
         result_data: dict[str, Any] = {
             "prompt_index": prompt_idx,
-            "responses": [
-                {
-                    "response_index": r["response_index"],
-                    "prompt_sent_to_api": r["prompt_sent_to_api"],
-                    "completion": _clean_completion_result(r["completion"]),
-                    "success": r["success"],
-                    **r["metadata"],
-                }
-                for r in responses_sorted
-            ],
+            "responses": result_responses,
         }
 
         if problems and prompt_idx in problems:

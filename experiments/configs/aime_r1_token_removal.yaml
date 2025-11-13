@@ -1,7 +1,7 @@
-# Configuration for token insertion experiment
+# Configuration for token removal experiment (CLOSED THINKING MODE)
 # This experiment:
 # 1. Loads previously sampled responses with thinking traces
-# 2. Inserts random tokens into the thinking trace (equal to N% of original trace length)
+# 2. Removes N% of random tokens from the thinking trace
 # 3. Closes the </think> tag and prefills it in the prompt
 # 4. Uses OpenRouter completions API to generate only the final answer after </think>
 
@@ -9,9 +9,8 @@
 model:
   name: "deepseek/deepseek-r1"
   temperature: 0.6
-  max_tokens: 16384
+  max_tokens: 32768
   top_p: 0.95
-  timeout: 120
   reasoning: true
   logprobs: false
   top_logprobs: 5
@@ -23,21 +22,24 @@ openrouter:
 # Experiment configuration
 experiment:
   # Input: previously sampled responses
-  input_responses_dir: "experiments/results_final/deepseek-r1/mmlu/marketing/samples"
+  input_responses_dir: "experiments/results_final/deepseek-r1/aime2024/samples"
 
   # Which prompts to process
   start_index: 0
-  end_index: null  # Process all prompts
+  end_index: null  # Process first 10 for testing
   # Note: ALL responses per prompt will be processed
 
-  # Token insertion configuration
-  # percentage_to_insert: 0.5 means insert tokens equal to 50% of original trace length
-  # (e.g., if original trace has 100 tokens, insert 50 random tokens)
-  percentage_to_insert: 0.9  # Percentage of original trace length to insert (0.25 = 25%)
-  # n_tokens_to_insert: 50  # Alternative: Number of random tokens to insert
+  # Token removal configuration
+  # Can specify cut_at_percentage OR (cut_start_percentage + cut_end_percentage), optionally combined with removal
+  # If both cut and removal are specified: first cut the trace, then remove tokens from the remaining portion
+  # cut_at_percentage: 0.5  # Cut trace at percentage - keep first X% of tokens from beginning (0.5 = 50% = keep first half)
+  cut_start_percentage: 0.0  # Start percentage for cutting (0.0 = from beginning)
+  cut_end_percentage: 0.5  # End percentage for cutting (0.5 = up to 50%, keeps tokens from start% to end%)
+  percentage_to_remove: 0.9  # Percentage of random tokens to remove from the cut trace (0.5 = 50%)
+  # n_tokens_to_remove: 50  # Alternative: Number of random tokens to remove from the cut trace
 
   # Thinking tag mode
-  close_thinking_tag: false  # TRUE = close tag, model generates only answer after thinking tag
+  close_thinking_tag: false  # TRUE = close tag, model generates only answer after </think>
 
   # Save original response in output JSON
   save_original_response: false  # If true, saves the original response data in the output JSON file
@@ -48,11 +50,8 @@ experiment:
   # Tokenizer configuration (required for proper tokenization)
   tokenizer_name: "deepseek-ai/DeepSeek-R1"  # Tokenizer name from transformers library
 
-  # Batch size for parallel processing
-  batch_size: 10
-
   # Output configuration
-  output_dir: "experiments/results_final/deepseek-r1/mmlu/marketing/token_insertion_open/insert_0.9"
+  output_dir: "experiments/results_final/deepseek-r1/aime2024/token_removal_open/cut_0.5/remove_0.9"
 
 prompt_formatting:
   prefix_user_tokens: "<｜begin▁of▁sentence｜><｜User｜>"
@@ -64,6 +63,6 @@ prompt_formatting:
 # Optional: Prompt template configuration
 # If specified, reformats the prompt using the template before building completion prompts
 prompt:
-  template: "mmlu_multiple_choice_tampering"  # Template name from PROMPT_TEMPLATES in src/prompt_formatter.py
-  field_name: "question"  # Field name to extract from dataset
+  template: "math500_tampering"  # Template name from PROMPT_TEMPLATES in src/prompt_formatter.py
+  field_name: "problem"  # Field name to extract from dataset
   # custom_template: null  # Optional: custom template string with {} placeholder (overrides template)

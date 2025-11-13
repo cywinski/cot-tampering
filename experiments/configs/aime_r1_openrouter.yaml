@@ -16,6 +16,14 @@ model:
   logprobs: false  # Return log probabilities
   top_logprobs: 5  # Number of top logprobs per token
 
+  # Thinking tags for wrapping reasoning traces (OpenRouter only)
+  wrap_thinking: true  # Wrap reasoning in tags (e.g., <think>...</think>)
+  thinking_tag: "think"  # Tag name to use (will be wrapped as <tag> and </tag>)
+
+  # Optional: OpenRouter rankings
+  # site_url: null  # Optional: site URL for OpenRouter rankings
+  # site_name: null  # Optional: site name for OpenRouter rankings
+
 # Sampling configuration
 sampling:
   n_responses: 5  # Number of responses to sample per problem
@@ -25,8 +33,8 @@ sampling:
 
 # Dataset configuration
 dataset:
-  name: "math500"
-  random_sample: 50  # Randomly sample N problems from dataset (null to use all)
+  name: "aime"
+  random_sample: null  # Randomly sample N problems from dataset (null to use all)
   random_seed: 42  # Random seed for reproducibility
 
 # Prompt formatting
@@ -40,11 +48,10 @@ prompt_formatting:
   prefix_user_tokens: "<｜begin▁of▁sentence｜><｜User｜>"
   postfix_user_tokens: ""  # Optional: e.g., "<|im_end|>\n" for some models
   prefix_assistant_tokens: "<｜Assistant｜>"
-  open_thinking_token: "<think>\n"  # Tag used in source responses (e.g., "think", "redacted_reasoning")
-  close_thinking_token: "</think>"  # Tag used in source responses (e.g., "think", "redacted_reasoning")
+  thinking_token: "<think>\n"  # Tag used in source responses (e.g., "think", "redacted_reasoning")
 # Output configuration
 output:
-  save_dir: "experiments/results_final/deepseek-r1/math500/samples"  # Base directory for results (subdirectory per dataset will be created)
+  save_dir: "experiments/results_final/deepseek-r1/aime2024/samples"  # Base directory for results (subdirectory per dataset will be created)
   # Each prompt's responses saved to individual JSON files: prompt_0000.json, prompt_0001.json, etc.
 
 openrouter:

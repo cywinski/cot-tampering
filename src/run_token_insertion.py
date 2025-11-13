@@ -15,6 +15,7 @@ from sampling import (
     OpenRouterCompletionsClient,
     SampleItem,
     build_completion_prompt,
+    cut_thinking_trace_at_percentage,
     extract_thinking_trace,
     group_results_by_prompt,
     insert_random_tokens,
@@ -96,9 +97,17 @@ def run_token_insertion(
     # Determine which operations to perform
     n_tokens_to_insert = exp_config.get("n_tokens_to_insert")
     percentage_to_insert = exp_config.get("percentage_to_insert")
+    cut_at_percentage = exp_config.get("cut_at_percentage")
+    cut_start_percentage = exp_config.get("cut_start_percentage")
+    cut_end_percentage = exp_config.get("cut_end_percentage")
 
     # Validate operations
-    if n_tokens_to_insert is None and percentage_to_insert is None:
+    has_cut = cut_at_percentage is not None or (
+        cut_start_percentage is not None and cut_end_percentage is not None
+    )
+    has_insertion = n_tokens_to_insert is not None or percentage_to_insert is not None
+
+    if not has_insertion:
         print(
             "ERROR: Must specify at least one of: n_tokens_to_insert or percentage_to_insert"
         )
@@ -108,16 +117,44 @@ def run_token_insertion(
         print("ERROR: Cannot specify both n_tokens_to_insert and percentage_to_insert")
         return
 
+    if cut_at_percentage is not None and (
+        cut_start_percentage is not None or cut_end_percentage is not None
+    ):
+        print(
+            "ERROR: Cannot specify both cut_at_percentage and (cut_start_percentage/cut_end_percentage)"
+        )
+        return
+
+    if (cut_start_percentage is not None) != (cut_end_percentage is not None):
+        print(
+            "ERROR: Must specify both cut_start_percentage and cut_end_percentage together"
+        )
+        return
+
     # Print operation summary
+    operations = []
+    if has_cut:
+        if cut_start_percentage is not None and cut_end_percentage is not None:
+            operations.append(
+                f"Cutting trace from {cut_start_percentage * 100:.1f}% to {cut_end_percentage * 100:.1f}% "
+                f"(keeping {cut_end_percentage * 100 - cut_start_percentage * 100:.1f}% from middle)"
+            )
+        elif cut_at_percentage is not None:
+            operations.append(
+                f"Cutting trace at {cut_at_percentage * 100:.1f}% (keeping first {cut_at_percentage * 100:.1f}%)"
+            )
     if n_tokens_to_insert is not None:
-        operations = f"Inserting {n_tokens_to_insert} random tokens"
+        operations.append(f"Inserting {n_tokens_to_insert} random tokens")
     elif percentage_to_insert is not None:
-        operations = (
+        operations.append(
             f"Inserting {percentage_to_insert * 100:.1f}% of original trace length "
             f"({percentage_to_insert * 100:.1f}% means inserting tokens equal to {percentage_to_insert * 100:.1f}% of original length)"
         )
 
-    print(f"Operation: {operations}")
+    if len(operations) > 1:
+        print(f"Operations: {' -> '.join(operations)}")
+    else:
+        print(f"Operation: {operations[0]}")
 
     # Use completion_prompt_formatting if specified, otherwise fall back to prompt_formatting
     fmt_config = (
@@ -259,9 +296,12 @@ def run_token_insertion(
                 print(f"    Response keys: {list(response.keys())}")
                 continue
 
-            # Process thinking trace - insert random tokens
+            # Process thinking trace - first cut, then insert random tokens
             n_tokens = exp_config.get("n_tokens_to_insert")
             percentage = exp_config.get("percentage_to_insert")
+            cut_at_percentage = exp_config.get("cut_at_percentage")
+            cut_start_percentage = exp_config.get("cut_start_percentage")
+            cut_end_percentage = exp_config.get("cut_end_percentage")
 
             try:
                 # Calculate original token count using tokenizer if available
@@ -272,6 +312,31 @@ def run_token_insertion(
                 else:
                     original_token_count = len(thinking_trace.split())
 
+                current_thinking = thinking_trace
+                tokens_removed_by_cut = 0
+                cut_trace_token_count = original_token_count
+
+                # Step 1: Cut trace at percentage(s) if specified
+                if cut_start_percentage is not None and cut_end_percentage is not None:
+                    # Cut from start_percentage to end_percentage
+                    current_thinking, n_tokens_kept = cut_thinking_trace_at_percentage(
+                        current_thinking,
+                        cut_end_percentage,
+                        tokenizer=tokenizer,
+                        start_percentage=cut_start_percentage,
+                    )
+                    tokens_removed_by_cut = original_token_count - n_tokens_kept
+                    cut_trace_token_count = n_tokens_kept
+                elif cut_at_percentage is not None:
+                    # Cut at percentage (backward compatibility - keeps first X%)
+                    current_thinking, n_tokens_kept = cut_thinking_trace_at_percentage(
+                        current_thinking, cut_at_percentage, tokenizer=tokenizer
+                    )
+                    tokens_removed_by_cut = original_token_count - n_tokens_kept
+                    cut_trace_token_count = n_tokens_kept
+
+                # Step 2: Insert tokens into the (possibly cut) trace
+                # Note: insert_random_tokens calculates percentage relative to the trace it receives
                 if seed is not None:
                     deterministic_seed = seed + prompt_idx * 1000 + response_idx
                 else:
@@ -279,7 +344,7 @@ def run_token_insertion(
 
                 modified_thinking, insertion_positions, tokens_inserted = (
                     insert_random_tokens(
-                        thinking_trace,
+                        current_thinking,
                         n_tokens=n_tokens,
                         percentage=percentage,
                         seed=deterministic_seed,
@@ -295,9 +360,10 @@ def run_token_insertion(
                 else:
                     final_token_count = len(modified_thinking.split())
 
+                # Calculate percentage inserted relative to cut trace (not original)
                 percentage_inserted = (
-                    (tokens_inserted / original_token_count) * 100
-                    if original_token_count > 0
+                    (tokens_inserted / cut_trace_token_count) * 100
+                    if cut_trace_token_count > 0
                     else 0
                 )
                 n_tokens_inserted = tokens_inserted
@@ -318,19 +384,39 @@ def run_token_insertion(
                 close_thinking_tag=close_thinking_tag,
             )
 
+            metadata = {
+                "n_tokens_inserted": n_tokens_inserted,
+                "percentage_inserted": percentage_inserted,
+                "original_token_count": original_token_count,
+                "modified_token_count": final_token_count,
+                "close_thinking_tag_mode": close_thinking_tag,
+                "tokenizer_used": tokenizer_name if tokenizer else None,
+            }
+
+            # Add cutting metadata if cutting was performed
+            if tokens_removed_by_cut > 0:
+                metadata["tokens_removed_by_cut"] = tokens_removed_by_cut
+                metadata["cut_trace_token_count"] = cut_trace_token_count
+                metadata["percentage_removed_by_cut"] = (
+                    (tokens_removed_by_cut / original_token_count) * 100
+                    if original_token_count > 0
+                    else 0
+                )
+                if cut_start_percentage is not None and cut_end_percentage is not None:
+                    metadata["cut_start_percentage"] = cut_start_percentage
+                    metadata["cut_end_percentage"] = cut_end_percentage
+                elif cut_at_percentage is not None:
+                    metadata["cut_at_percentage"] = cut_at_percentage
+            else:
+                # Even if no cutting, include cut_trace_token_count for consistency
+                metadata["cut_trace_token_count"] = cut_trace_token_count
+
             sample_items.append(
                 SampleItem(
                     prompt_str=completion_prompt,
                     prompt_index=prompt_idx,
                     response_index=response_idx,
-                    metadata={
-                        "n_tokens_inserted": n_tokens_inserted,
-                        "percentage_inserted": percentage_inserted,
-                        "original_token_count": original_token_count,
-                        "modified_token_count": final_token_count,
-                        "close_thinking_tag_mode": close_thinking_tag,
-                        "tokenizer_used": tokenizer_name if tokenizer else None,
-                    },
+                    metadata=metadata,
                 )
             )
 

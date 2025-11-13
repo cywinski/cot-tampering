@@ -23,6 +23,23 @@ def load_math500() -> list[dict[str, Any]]:
     ]
 
 
+def load_aime() -> list[dict[str, Any]]:
+    """Load AIME dataset.
+
+    Returns:
+        List of problem dicts with 'problem', 'solution', and 'answer' keys
+    """
+    dataset = load_dataset("Maxwell-Jia/AIME_2024", split="train")
+    return [
+        {
+            "problem": item["Problem"],
+            "solution": item["Solution"],
+            "answer": item["Answer"],
+        }
+        for item in dataset
+    ]
+
+
 def load_gsm8k() -> list[dict[str, Any]]:
     """Load GSM8K math reasoning dataset.
 
@@ -134,6 +151,7 @@ def load_alpaca() -> list[dict[str, Any]]:
 # Dataset registry: maps dataset names to loader functions
 DATASET_REGISTRY: dict[str, Callable[[], list[dict[str, Any]]]] = {
     "math500": load_math500,
+    "aime": load_aime,
     "gsm8k": load_gsm8k,
     "mmlu": load_mmlu,
     "truthfulqa": load_truthfulqa,

@@ -78,7 +78,7 @@ def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
     prefix_user_tokens = prompt_formatting.get("prefix_user_tokens", "")
     postfix_user_tokens = prompt_formatting.get("postfix_user_tokens", "")
     prefix_assistant_tokens = prompt_formatting.get("prefix_assistant_tokens", "")
-    thinking_token = prompt_formatting.get("thinking_token", "")
+    thinking_token = prompt_formatting.get("open_thinking_token", "")
 
     completion_prompts = [
         format_completion_prompt(
@@ -90,6 +90,7 @@ def run_sampling(config_path: str = "experiments/configs/sampling_config.yaml"):
         )
         for msg in user_messages
     ]
+    print(completion_prompts[0])
 
     # Setup client
     model_config = config["model"]
